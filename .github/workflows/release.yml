@@ -1,0 +1,100 @@
+name: Release (PyPI publish)
+
+# Tag-triggered only. Two jobs, split deliberately (mirrors polytypo-js's release.yml):
+#   verify  — builds, tests, builds exactly one sdist + one wheel, runs every release gate
+#             against those exact files, and uploads them as a workflow artifact. Only
+#             `contents: read` — no PyPI token, no `id-token: write`; it cannot publish anything.
+#   publish — needs: verify. Downloads the artifact `verify` uploaded and publishes it via PyPI
+#             Trusted Publishing (OIDC) — no stored token. It never runs `python -m build` itself;
+#             the artifact it publishes is byte-for-byte what `verify` already checked.
+#
+# PyPI Trusted Publishing has no bootstrap chicken-and-egg problem for a brand-new project name
+# (unlike npm's, which needed a one-time token for 1.0.0): an operator configures a "pending"
+# publisher on pypi.org, naming this repo and this workflow file, before the project exists —
+# the first successful publish through it creates the project and converts the pending publisher
+# to a normal one. See https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release gate and build the artifact
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 is not needed here (unlike polytypo-js's release.yml): the canonical spec
+      # tag is verified entirely over the GitHub API against polytypo/polytypo, never a local git
+      # operation against this checkout's own history (scripts/verify_spec_tag.py).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The pushed tag's literal name is passed through a step-level env var and referenced as a
+      # quoted shell variable, never interpolated with `${{ }}` directly into `run:` shell text —
+      # a git tag may contain shell metacharacters.
+      - name: Verify tag matches pyproject.toml version, and reject 0.0.0
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/verify_release_tag.py "${RELEASE_TAG}"
+
+      - name: Verify canonical spec tag exists in polytypo/polytypo
+        run: python scripts/verify_spec_tag.py
+
+      - name: Install package with dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Format check (ruff format)
+        run: ruff format --check .
+
+      - name: Type-check (mypy --strict)
+        run: mypy src
+
+      - name: Test
+        run: pytest tests -q --ignore=tests/packaging
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Packaging smoke test
+        run: pytest tests/packaging -q
+
+      - name: Upload built distributions as a workflow artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: pypi-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish the verified distribution to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/polytypo/
+    permissions:
+      contents: read
+      id-token: write # required for PyPI Trusted Publishing; nothing else in this job needs it.
+    steps:
+      - name: Download the verified distribution
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: pypi-dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

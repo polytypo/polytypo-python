@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package with dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Format check (ruff format)
+        run: ruff format --check .
+
+      - name: Type-check (mypy --strict)
+        run: mypy src
+
+      - name: Test
+        run: pytest tests -q --ignore=tests/packaging
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      # Installs the actual built wheel into a scratch venv and exercises every public entry
+      # point from there -- source-tree imports (PYTHONPATH=src, used by every other test) cannot
+      # catch a packaging defect like a missing py.typed marker or a file excluded from the wheel.
+      - name: Packaging smoke test
+        run: pytest tests/packaging -q
