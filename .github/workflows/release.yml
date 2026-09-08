@@ -53,6 +53,12 @@ jobs:
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"
 
+      # src/polytypo/_data/ is generated from vendor/polytypo-spec/ and is gitignored (never
+      # committed, never hand-edited) -- must run before anything that imports polytypo or builds
+      # a distribution.
+      - name: Generate locale/rule data
+        run: python scripts/gen_data.py
+
       - name: Lint (ruff check)
         run: ruff check .
 
