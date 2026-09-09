@@ -1,5 +1,7 @@
-"""spec/rules/apostrophe.md -- order 50, default on. Locale data: quotes.elisionIdioms
-(indirectly, via the shared ambiguity predicate's preserve set)."""
+"""spec/rules/apostrophe.md -- order 50, default on. Reads no locale data and skips no position
+as of spec 1.1.0: 0.5.0's preserve set (apostrophe.md 3.4) existed to stop the case ladder from
+converting the marks `quotes` had vetoed, and conversion is now the specified outcome for exactly
+those marks -- cases 4 and 3 are what turn `rock 'n' roll` into `rock ’n’ roll`."""
 
 from __future__ import annotations
 
@@ -7,7 +9,6 @@ from typing import Any
 
 from polytypo._engine.edits import Edit
 from polytypo._engine.registry import RuleContext
-from polytypo._engine.rules import _quote_ambiguity
 from polytypo._engine.sentinels import LINE_MARKER, MARKER, NONE
 from polytypo._engine.unicode import is_letter
 
@@ -75,11 +76,9 @@ def _is_alnum(v: int) -> bool:
 
 
 def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[Edit]:
-    _veto, preserve = _quote_ambiguity.compute_ambiguous_indices(cp, locale_data)
-
     edits: list[Edit] = []
     for i, g in enumerate(cp):
-        if g != SQ or i in preserve:
+        if g != SQ:
             continue
         left = _at(cp, i - 1)
         right = _at(cp, i + 1)

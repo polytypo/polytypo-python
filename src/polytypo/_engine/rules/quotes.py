@@ -84,7 +84,7 @@ def _skip_right(cp: list[int], i: int) -> int:
 
 def _compute_candidates(cp: list[int], locale_data: dict[str, Any]) -> list[Candidate]:
     space_right, space_left = _locale_skip_sets(locale_data)
-    veto_indices, _preserve = _quote_ambiguity.compute_ambiguous_indices(cp, locale_data)
+    veto_indices = _quote_ambiguity.compute_ambiguous_indices(cp, locale_data)
 
     candidates: list[Candidate] = []
     for i, g in enumerate(cp):
