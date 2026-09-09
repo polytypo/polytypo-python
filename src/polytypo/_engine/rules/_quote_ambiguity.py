@@ -1,7 +1,9 @@
-"""Shared ambiguous-medial-span predicate (quotes.md 3.2 "General ambiguous-medial-span veto"
-and "Listed elision veto"), consumed identically by `quotes` and `apostrophe` so the two rules
-cannot drift apart on what counts as ambiguous (mirrors polytypo-js's
-src/rules/quote-ambiguity.ts)."""
+"""The two decline-only predicates `quotes` reads (quotes.md 3.2, "Listed elision veto" and
+"Universal medial-`n` elision veto"). Both have the same outcome: the marks survive pass 2
+unmatched and `apostrophe` converts each by its own case ladder, giving `rock 'n' roll` ->
+`rock ’n’ roll`. Only `quotes` consumes this module -- spec 0.5.0 had `apostrophe` consume it
+too, through a preserve set withdrawn in 1.1.0 (apostrophe.md 3.4). Mirrors polytypo-js's
+src/rules/quote-ambiguity.ts."""
 
 from __future__ import annotations
 
@@ -10,9 +12,14 @@ from typing import Any
 from polytypo._engine.sentinels import NONE
 from polytypo._engine.unicode import is_letter
 
-NARROW_APOSTROPHE = 0x27  # U+0027 -- the only glyph the GENERAL ambiguous-shape veto considers
-NARROW = frozenset({0x27, 0x2018, 0x2019, 0x201A, 0x201B, 0x2039, 0x203A})  # the LISTED elision
-# veto's own trigger class -- ANY NARROW mark, curly or straight (unlike the general veto above)
+NARROW = frozenset({0x27, 0x2018, 0x2019, 0x201A, 0x201B, 0x2039, 0x203A})  # both vetoes' trigger
+# class -- ANY NARROW mark, curly or straight. For the universal medial-n veto this is an
+# IDEMPOTENCY obligation, not a preference: its marks are converted to U+2019 by `apostrophe`, so
+# a straight-ASCII-only predicate would not recognise its own output and pass 2 would pair
+# `rock ’n’ roll` as an ordinary NARROW quotation on the next run -- measured as `rock «n» roll`
+# in ru and `rock ”n” roll` in fi.
+LOWER_N = 0x6E  # quotes.md 3.2 -- the one code point the universal veto's span may enclose,
+UPPER_N = 0x4E  # in either case
 DIGIT = frozenset(range(0x30, 0x3A))
 INLINE_SPACE = frozenset({0x20, 0x09, 0xA0, 0x202F, 0x2007, 0x2009, 0x200A})
 
@@ -72,17 +79,12 @@ def _word_matches(cp: list[int], start: int, end: int, pattern: str) -> bool:
     return True
 
 
-def compute_ambiguous_indices(
-    cp: list[int], locale_data: dict[str, Any]
-) -> tuple[set[int], set[int]]:
-    """Returns (veto_indices, preserve_indices).
+def compute_ambiguous_indices(cp: list[int], locale_data: dict[str, Any]) -> set[int]:
+    """Every index that must have both quote capabilities forced false in `quotes`' own pass 1 --
+    the union of the listed-idiom matches and the universal medial-n matches.
 
-    veto_indices: every index that must have both quote capabilities forced false in `quotes`'
-    own pass 1 -- the union of listed-idiom matches and the general ambiguous-shape matches.
-
-    preserve_indices: veto_indices MINUS the listed-idiom matches -- positions `apostrophe` must
-    skip entirely rather than curling via its own case ladder (general-shape-but-uncited
-    positions only; idiom-matched positions get apostrophe's normal elision treatment).
+    The union is computed rather than assumed: an idiom's `elided` field is not required to be
+    the single `n` the universal veto matches.
     """
     n = len(cp)
     idiom_indices: set[int] = set()
@@ -119,25 +121,20 @@ def compute_ambiguous_indices(
             idiom_indices.add(i)
             idiom_indices.add(j)
 
-    general_indices: set[int] = set()
-    i = 0
-    while i < n:
-        if cp[i] == NARROW_APOSTROPHE:
-            for enclosed_len in (1, 2, 3):
-                j = i + 1 + enclosed_len
-                if j >= n or cp[j] != NARROW_APOSTROPHE:
-                    continue
-                enclosed = cp[i + 1 : i + 1 + enclosed_len]
-                if not all(is_letter(c) for c in enclosed):
-                    continue
-                if _at(cp, i - 1) not in INLINE_SPACE:
-                    continue
-                if _at(cp, j + 1) not in INLINE_SPACE:
-                    continue
-                general_indices.add(i)
-                general_indices.add(j)
-        i += 1
+    medial_n_indices: set[int] = set()
+    for i in range(n):
+        if cp[i] not in NARROW:
+            continue
+        if _at(cp, i + 1) not in (LOWER_N, UPPER_N):
+            continue
+        j = i + 2
+        if _at(cp, j) not in NARROW:
+            continue
+        if _at(cp, i - 1) not in INLINE_SPACE:
+            continue
+        if _at(cp, j + 1) not in INLINE_SPACE:
+            continue
+        medial_n_indices.add(i)
+        medial_n_indices.add(j)
 
-    veto_indices = idiom_indices | general_indices
-    preserve_indices = general_indices - idiom_indices
-    return veto_indices, preserve_indices
+    return idiom_indices | medial_n_indices
