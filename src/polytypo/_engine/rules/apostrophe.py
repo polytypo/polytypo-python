@@ -1,7 +1,8 @@
 """spec/rules/apostrophe.md -- order 50, default on. Reads no locale data and skips no position
 as of spec 1.1.0: 0.5.0's preserve set (apostrophe.md 3.4) existed to stop the case ladder from
 converting the marks `quotes` had vetoed, and conversion is now the specified outcome for exactly
-those marks -- cases 4 and 3 are what turn `rock 'n' roll` into `rock ’n’ roll`."""
+those marks -- cases 4 and 3 are what turn `rock 'n' roll` into `rock ’n’ roll`. Case 3a (spec
+1.2.0) reads a fixed OPENQUOTE set, not locale data."""
 
 from __future__ import annotations
 
@@ -63,6 +64,9 @@ CLOSEISH = frozenset(
         0x2014,
     }
 )
+# The quotation glyphs of OPENISH, without its brackets, dashes and MARKER (apostrophe.md 3.1,
+# spec 1.2.0): `f'(x)` must stay a prime, and a letter + U+0027 + dash is already case 3.
+OPENQUOTE = frozenset({0xAB, 0x2018, 0x201A, 0x201B, 0x201C, 0x201E, 0x201F, 0x2039})
 
 
 def _at(cp: list[int], i: int) -> int:
@@ -94,6 +98,9 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
             and (right == NONE or right in SPACELIKE or right in CLOSEISH)
         ):
             edits.append(Edit(i, i + 1, [0x2019], RULE_ID))  # case 3: trailing
+            continue
+        if left != NONE and is_letter(left) and right in OPENQUOTE:
+            edits.append(Edit(i, i + 1, [0x2019], RULE_ID))  # case 3a: before a quotation
             continue
         if (left == NONE or left in SPACELIKE or left in OPENISH) and _is_alnum(right):
             edits.append(Edit(i, i + 1, [0x2019], RULE_ID))  # case 4: leading

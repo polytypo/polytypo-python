@@ -8,7 +8,7 @@ from typing import Any
 
 from polytypo._engine.edits import Edit
 from polytypo._engine.registry import RuleContext
-from polytypo._engine.sentinels import LINE_MARKER, NONE
+from polytypo._engine.sentinels import LINE_MARKER, MARKER, NONE
 from polytypo._engine.unicode import is_letter, is_upper, simple_uppercase
 from polytypo.errors import POLYTYPO_MALFORMED_LOCALE_DATA, PolytypoError
 
@@ -35,9 +35,9 @@ OTHER_SPACE = frozenset(
         0x3000,
     }
 )
-# Includes LINE_MARKER: a member of BREAK for every rule everywhere (modes.md 3.2). nbsp's own
-# OPENISH/CLOSEISH (brackets + locale quote glyphs, see _openish_closeish) do NOT get MARKER --
-# unlike quotes/apostrophe, matching the reference implementation exactly.
+# Includes LINE_MARKER: a member of BREAK for every rule everywhere (modes.md 3.2). As of spec
+# 1.2.0 the inline MARKER is a member of nbsp's own CLOSEISH (read only by N1/N2's right-context
+# guard) and NOT of its OPENISH (nbsp.md 3.1, 7 item 12; modes.md 3.3) -- see _openish_closeish.
 BREAK = frozenset({0x0A, 0x0D, 0x0B, 0x0C, 0x85, 0x2028, 0x2029, LINE_MARKER})
 SPACELIKE = frozenset({SP, 0x09}) | NOBREAK | OTHER_SPACE | BREAK
 DIGIT = frozenset(range(0x30, 0x3A))
@@ -59,7 +59,7 @@ def _is_alnum(v: int) -> bool:
 def _openish_closeish(locale_data: dict[str, Any]) -> tuple[frozenset[int], frozenset[int]]:
     quotes = locale_data["quotes"]
     openish = {0x28, 0x5B, 0x7B}
-    closeish = {0x29, 0x5D, 0x7D}
+    closeish = {MARKER, 0x29, 0x5D, 0x7D}
     for pair in (quotes["primary"], quotes["secondary"]):
         openish.add(ord(pair["open"]))
         closeish.add(ord(pair["close"]))
@@ -124,8 +124,8 @@ def _before_punctuation_common(
         prev = _at(cp, i - 1)
         if prev in target_set or prev in other_set:
             continue
-        # Right-context guard. nbsp.md's own CLOSEISH (brackets + locale close glyphs), NOT
-        # quotes.md's broader CLOSEISH -- the two documents define the class name differently.
+        # Right-context guard. nbsp.md's own CLOSEISH (brackets + locale close glyphs + MARKER),
+        # NOT quotes.md's broader CLOSEISH -- the two documents define the class name differently.
         after = _at(cp, i + 1)
         if (
             after != NONE

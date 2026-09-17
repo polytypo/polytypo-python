@@ -42,3 +42,9 @@ def test_empty_bracket_guard_collapses_but_does_not_delete() -> None:
 
 def test_open_bracket_strips_trailing_space() -> None:
     assert polytypo.transform("(  a)", locale="en-US") == "(a)"
+
+
+def test_word_start_clause_keeps_space_before_dot_initial_token() -> None:
+    # spaces.md 3.4 (spec 1.2.0): a dot followed by a letter or digit starts a word.
+    assert polytypo.transform("Use .NET, .NET Core", locale="en-US") == "Use .NET, .NET Core"
+    assert polytypo.transform("a .5 b", locale="en-US") == "a .5 b"
