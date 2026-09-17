@@ -4,6 +4,7 @@ used throughout since its locale data exercises every sub-rule (N1-N10)."""
 from __future__ import annotations
 
 import polytypo
+import polytypo.html
 
 NBSP = " "
 NNBSP = " "
@@ -27,3 +28,9 @@ def test_n5_before_units() -> None:
 
 def test_n3_after_short_words_does_not_fire_mid_abbreviation() -> None:
     assert polytypo.transform("p. 12", locale="fr") == "p. 12"
+
+
+def test_n1_right_context_accepts_span_boundary_marker() -> None:
+    # nbsp.md 3.3 step 2 (spec 1.2.0): the inline marker is in nbsp's CLOSEISH.
+    out = polytypo.html.transform("<strong>gel :</strong> il", locale="fr")
+    assert out == f"<strong>gel{NBSP}:</strong> il"

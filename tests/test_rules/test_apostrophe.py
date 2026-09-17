@@ -23,3 +23,12 @@ def test_prime_guard_leaves_feet_and_inches_alone() -> None:
 
 def test_case_5_nothing_inferable_is_left_alone() -> None:
     assert polytypo.transform("a ' b", locale="en-US") == "a ' b"
+
+
+def test_case_3a_elision_before_opening_quotation_glyph() -> None:
+    # apostrophe.md 3.3 case 3a (spec 1.2.0).
+    assert polytypo.transform("l'“idea”", locale="en-US") == "l’“idea”"
+
+
+def test_case_3a_excludes_brackets() -> None:
+    assert polytypo.transform("f'(x) = 2", locale="en-US") == "f'(x) = 2"

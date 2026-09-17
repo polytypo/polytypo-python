@@ -112,7 +112,9 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
 
 def _lone_dot_condition_holds(cp: list[int], e: int, right: int) -> bool:
     """3.4: if right is U+002E, replacement length may be 0 only if the maximal DOTLIKE run
-    starting at e has length exactly 1. Any other STRIP-BEFORE member is unaffected."""
+    starting at e has length exactly 1 and cp[e+1] is neither a LETTER nor an ASCII digit (the
+    word-start clause, spec 1.2.0: `.NET`, `.5`). A span boundary marker after the dot is neither,
+    so it still strips. Any other STRIP-BEFORE member is unaffected."""
     if right != 0x2E:
         return True
     j = e
@@ -121,4 +123,7 @@ def _lone_dot_condition_holds(cp: list[int], e: int, right: int) -> bool:
     while j < n and cp[j] in DOTLIKE:
         run_len += 1
         j += 1
-    return run_len == 1
+    if run_len != 1:
+        return False
+    after = _at(cp, e + 1)
+    return after == NONE or not (is_letter(after) or _is_ascii_digit(after))
