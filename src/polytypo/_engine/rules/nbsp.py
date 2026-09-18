@@ -17,6 +17,11 @@ RULE_ID = "nbsp"
 SP = 0x20
 NBSP = 0xA0
 NNBSP = 0x202F
+SEMICOLON = 0x3B
+AMPERSAND = 0x26
+HASH = 0x23
+# The longest HTML named reference is 31 code points ("CounterClockwiseContourIntegral").
+MAX_CHARACTER_REFERENCE_NAME = 32
 NOBREAK = frozenset({NBSP, NNBSP})
 OTHER_SPACE = frozenset(
     {
@@ -105,6 +110,27 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
 # ---------------------------------------------------------------- N1 / N2
 
 
+def _ends_character_reference(cp: list[int], i: int) -> bool:
+    """nbsp.md 3.3 step 4: do the code points left of this ";" have the shape of a character
+    reference? A bounded left walk over ASCII alphanumerics, optionally one "#", then "&". Shape,
+    not the HTML named-reference table -- declining on "&notaname;" costs nothing, and no runtime
+    carries thousands of entries for it. The bound is the longest named reference (31) plus one.
+    """
+    j = i - 1
+    while j >= 0 and _is_ascii_alphanumeric(cp[j]):
+        j -= 1
+    length = i - 1 - j
+    if length < 1 or length > MAX_CHARACTER_REFERENCE_NAME:
+        return False
+    if j >= 0 and cp[j] == HASH:
+        j -= 1
+    return j >= 0 and cp[j] == AMPERSAND
+
+
+def _is_ascii_alphanumeric(c: int) -> bool:
+    return 0x30 <= c <= 0x39 or 0x41 <= c <= 0x5A or 0x61 <= c <= 0x7A
+
+
 def _before_punctuation_common(
     cp: list[int],
     target_set: set[int],
@@ -138,6 +164,11 @@ def _before_punctuation_common(
             continue
         # Quote-glyph guard.
         if (prev in SPACELIKE and _at(cp, i - 2) in openish) or prev in openish:
+            continue
+        # Character-reference guard (nbsp.md 3.3 step 4, spec 1.3.0). text mode has no markup
+        # concept, so a locale listing ";" used to insert before the ";" that *ends* a reference
+        # and `Bonjour&#160;: oui` stopped being what it was.
+        if cp[i] == SEMICOLON and _ends_character_reference(cp, i):
             continue
         left = prev
         if left == already_correct:
