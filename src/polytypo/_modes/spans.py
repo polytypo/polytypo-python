@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from polytypo._engine.codepoints import to_codepoints
 from polytypo._engine.edits import Edit
+from polytypo._engine.origin import NO_ORIGIN
 from polytypo._engine.sentinels import LINE_MARKER, MARKER, is_marker
 from polytypo.errors import POLYTYPO_RULE_CONTRACT, PolytypoError
 
@@ -136,3 +137,19 @@ def split_on_marker(cp: list[int], expected: int) -> list[list[int]]:
             f"found {len(pieces)}",
         )
     return pieces
+
+
+def origin_of_spans(source: str, spans: list[Span]) -> list[int]:
+    """The origin map for `concatenate_spans` (analyze.md section 2): for every code point of the
+    joined array, the code-point offset of the character it came from IN THE DOCUMENT, and
+    NO_ORIGIN for the markers, which came from nowhere. A Python `Span`'s bounds are already
+    code-point offsets, so unlike polytypo-js's `originOfSpans` there is no UTF-16 index to
+    convert here."""
+    origin: list[int] = []
+    previous: Span | None = None
+    for span in spans:
+        if previous is not None:
+            origin.append(NO_ORIGIN)
+        origin.extend(range(span.start, span.end))
+        previous = span
+    return origin

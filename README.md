@@ -71,6 +71,24 @@ import polytypo
 polytypo.transform("...", locale="fr", mode="markdown", dialect="commonmark")
 ```
 
+`analyze()` runs the same pipeline and reports what it would do instead of doing it — one record
+per edit, each with the rule that made it and code-point offsets into the input you passed (into
+the **document**, in `html` and `markdown` mode, not into a span):
+
+```python
+import polytypo
+
+polytypo.analyze('Wait... "really"?', locale="en-US")
+# [Change(rule_id='ellipsis', start=4, end=7, before='...', after='…'),
+#  Change(rule_id='quotes', start=8, end=9, before='"', after='“'), …]
+```
+
+It is a report, not a patch. The list is empty exactly when `transform` would return the input
+unchanged, and every `rule_id` is a rule that was enabled for that call — but two rules may touch
+the same original range (French `spaces` deletes the space before `:` and `nbsp` puts a no-break
+one back), so replaying the list is not guaranteed to reproduce the output. Call `transform` for
+the text. Full contract: `spec/rules/analyze.md`.
+
 ## Supported dialects
 
 `markdown` mode requires a `dialect` keyword, exactly as the spec requires (no default,

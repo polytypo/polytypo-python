@@ -8,11 +8,18 @@ directly and never touches `_modes.html` or `_modes.markdown` (mirrors polytypo-
 
 from __future__ import annotations
 
-from polytypo._engine.mode_pipelines import run_text_pipeline
+from polytypo._engine.mode_pipelines import analyze_text_pipeline, run_text_pipeline
+from polytypo._engine.origin import Change
 from polytypo.errors import PolytypoError
 
-__all__ = ["PolytypoError", "transform"]
+__all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
 
 def transform(input: str, *, locale: str, rules: dict[str, bool] | None = None) -> str:
     return run_text_pipeline(input, locale=locale, rules=rules)
+
+
+def analyze(input: str, *, locale: str, rules: dict[str, bool] | None = None) -> list[Change]:
+    """The same pipeline as this entry's `transform`, reporting instead of applying
+    (spec/rules/analyze.md). Offsets are code-point offsets into `input`."""
+    return analyze_text_pipeline(input, locale=locale, rules=rules)

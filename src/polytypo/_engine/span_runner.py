@@ -9,12 +9,15 @@ from typing import Any
 
 from polytypo._engine.codepoints import from_codepoints
 from polytypo._engine.edits import apply_edits
+from polytypo._engine.origin import Change
+from polytypo._engine.pipeline import run_rules_recording
 from polytypo._engine.registry import RuleContext, get_rule
 from polytypo._modes.spans import (
     Span,
     concatenate_spans,
     filter_boundary_edits,
     normalize_spans,
+    origin_of_spans,
     span_ranges_of,
     split_on_marker,
 )
@@ -65,3 +68,28 @@ def run_over_spans(
         cursor = span.end
     out.append(source[cursor:])
     return "".join(out)
+
+
+def analyze_over_spans(
+    source: str,
+    spans: list[Span],
+    plan: list[str],
+    locale_data: dict[str, Any],
+    ctx: RuleContext,
+) -> list[Change]:
+    """`run_over_spans`, reporting instead of applying (analyze.md section 1). The span table
+    supplies the origin map, so every change comes back in DOCUMENT coordinates -- analyze.md
+    section 6 names a runtime that reports span-local offsets here as the mistake that passes
+    every text-mode test."""
+    normalized = normalize_spans(spans)
+    if not normalized:
+        return []
+    return run_rules_recording(
+        concatenate_spans(source, normalized),
+        plan,
+        locale_data,
+        ctx,
+        origin_of_spans(source, normalized),
+        len(source),
+        lambda current, edits: filter_boundary_edits(current, edits, span_ranges_of(current)),
+    )

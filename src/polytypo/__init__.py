@@ -9,13 +9,17 @@ pipeline directly and never import this module (mirrors polytypo-js's `polytypo`
 from __future__ import annotations
 
 from polytypo._engine.mode_pipelines import (
+    analyze_html_pipeline,
+    analyze_markdown_pipeline,
+    analyze_text_pipeline,
     run_html_pipeline,
     run_markdown_pipeline,
     run_text_pipeline,
 )
+from polytypo._engine.origin import Change
 from polytypo.errors import POLYTYPO_INVALID_MODE, PolytypoError
 
-__all__ = ["PolytypoError", "transform"]
+__all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
 __version__ = "0.0.0"
 
@@ -44,3 +48,27 @@ def transform(
     if resolved_mode == "html":
         return run_html_pipeline(input, locale=locale, rules=rules)
     return run_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+
+
+def analyze(
+    input: str,
+    *,
+    locale: str,
+    mode: str | None = None,
+    dialect: str | None = None,
+    rules: dict[str, bool] | None = None,
+) -> list[Change]:
+    """The same pipeline as `transform`, reporting what it would do instead of doing it
+    (spec/rules/analyze.md). Offsets are code-point offsets into `input` in every mode.
+
+    What it guarantees: the list is empty exactly when `transform` would return the input
+    unchanged, every `rule_id` was enabled for the call, and every offset is inside the input.
+    What it does not: the list is a report, not a patch -- two rules may touch the same original
+    range, so replaying it is not guaranteed to reproduce `transform`'s output. Call `transform`
+    for the text (analyze.md sections 4 and 5)."""
+    resolved_mode = _resolve_mode(mode)
+    if resolved_mode == "text":
+        return analyze_text_pipeline(input, locale=locale, rules=rules)
+    if resolved_mode == "html":
+        return analyze_html_pipeline(input, locale=locale, rules=rules)
+    return analyze_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
