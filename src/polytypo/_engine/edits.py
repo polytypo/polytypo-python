@@ -1,7 +1,6 @@
 """The Edit contract (mirrors polytypo-js's src/engine/edits.ts). Rules produce edits; the
-pipeline applies them -- this separation is the one piece of v1 internal structure explicitly
-authorized ahead of need (docs/ARCHITECTURE.md section 7.1's reserved, not-yet-implemented
-``analyze()`` API)."""
+pipeline applies them -- the separation docs/ARCHITECTURE.md section 7.1 reserved the engine's
+shape for, and what ``analyze()`` (spec/rules/analyze.md, origin.py) reports without applying."""
 
 from __future__ import annotations
 

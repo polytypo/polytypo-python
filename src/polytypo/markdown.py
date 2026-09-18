@@ -11,13 +11,23 @@
 
 from __future__ import annotations
 
-from polytypo._engine.mode_pipelines import run_markdown_pipeline
+from polytypo._engine.mode_pipelines import analyze_markdown_pipeline, run_markdown_pipeline
+from polytypo._engine.origin import Change
 from polytypo.errors import PolytypoError
 
-__all__ = ["PolytypoError", "transform"]
+__all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
 
 def transform(
     input: str, *, locale: str, dialect: str, rules: dict[str, bool] | None = None
 ) -> str:
     return run_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+
+
+def analyze(
+    input: str, *, locale: str, dialect: str, rules: dict[str, bool] | None = None
+) -> list[Change]:
+    """The same pipeline as this entry's `transform`, reporting instead of applying
+    (spec/rules/analyze.md). Offsets are code-point offsets into the **document**, not into a
+    span (analyze.md section 2)."""
+    return analyze_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
