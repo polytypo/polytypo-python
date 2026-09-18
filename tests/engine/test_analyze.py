@@ -134,13 +134,16 @@ class TestA5OffsetsAreCodePointsInsideTheInput:
         assert first.after == "…"
 
     def test_html_mode_reports_document_offsets_in_a_later_span(self) -> None:
-        """Three spans, and the change is in the third: the two markers before it are the only
-        code points in the joined array with no origin, so a doubled or dropped one shifts this
-        offset and nothing in a one- or two-span document would notice."""
-        text = "<p>one</p><p>two</p><p>Wait... three</p>"
+        """Three spans, a non-ASCII character before the change, and the change in the third
+        span: the two markers are the only code points in the joined array with no origin, so a
+        doubled or dropped one shifts this offset and nothing in a one- or two-span document
+        would notice, and `café` puts the UTF-8 byte offset one ahead of the code-point one, so
+        a byte offset leaking out of a span adapter cannot pass either."""
+        text = "<p>café</p><p>two</p><p>Wait... three</p>"
         first = polytypo.analyze(text, locale="en-US", mode="html")[0]
         assert first.rule_id == "ellipsis"
         assert first.start == text.index("...")
+        assert len(text[: text.index("...")].encode("utf-8")) == first.start + 1
 
     def test_markdown_mode_reports_document_offsets(self) -> None:
         text = "# Title\n\nWait... here\n"
