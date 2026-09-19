@@ -11,10 +11,13 @@ POLYTYPO_UNKNOWN_RULE = "POLYTYPO_UNKNOWN_RULE"
 POLYTYPO_MALFORMED_LOCALE_DATA = "POLYTYPO_MALFORMED_LOCALE_DATA"
 POLYTYPO_RULE_CONTRACT = "POLYTYPO_RULE_CONTRACT"
 POLYTYPO_MALFORMED_INPUT = "POLYTYPO_MALFORMED_INPUT"
+# Spec 1.3.0. Deliberately general: every option added from 1.3.0 on shares this code, while
+# `mode` and `dialect` keep their own because callers branch on them.
+POLYTYPO_INVALID_OPTION = "POLYTYPO_INVALID_OPTION"
 
 
 class PolytypoError(Exception):
-    """Carries a stable ``code`` from the seven above. No other exception type from this package
+    """Carries a stable ``code`` from the eight above. No other exception type from this package
     or its dependencies is ever allowed to escape :func:`polytypo.transform`."""
 
     def __init__(self, code: str, message: str) -> None:
