@@ -33,8 +33,12 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
         i = next_i
         if token is None:
             continue
-        if token.left_cp in shared.DIGIT and token.right_cp in shared.DIGIT:
-            continue  # digit-flanked: ranges' territory exclusively, never dashes'.
+        # A range candidate is `ranges`' territory, never `dashes`' -- declined unconditionally,
+        # whether or not `ranges` is enabled. Since spec 1.3.0 a candidate may carry a matched
+        # closed-up symbol on a flank (ranges.md 3.2a), which is why this is `range_flanks`
+        # rather than a digit test on both flanks.
+        if shared.range_flanks(cp, token.left_idx, token.right_idx) is not None:
+            continue
 
         edit = _try_parenthetical(cp, token, form)
         if edit is not None:
