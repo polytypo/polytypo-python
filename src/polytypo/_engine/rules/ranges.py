@@ -35,30 +35,33 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
         i = next_i
         if token is None:
             continue
-        if token.left_cp not in shared.DIGIT or token.right_cp not in shared.DIGIT:
-            continue  # not a range candidate; dashes' concern
+        # ranges.md 3.2, 3.2a -- a candidate iff both flanks are DIGIT once a matched closed-up
+        # symbol has been walked over. Anything else is dashes' concern.
+        flanks = shared.range_flanks(cp, token.left_idx, token.right_idx)
+        if flanks is None:
+            continue
 
-        edit = _try_range(cp, token, form)
+        edit = _try_range(cp, token, flanks, form)
         if edit is not None:
             edits.append(edit)
     return edits
 
 
-def _try_range(cp: list[int], token: shared.DashToken, form: str) -> Edit | None:
-    L, R = token.left_idx, token.right_idx
-
-    a = L
-    while a > 0 and cp[a - 1] in shared.DIGIT:
-        a -= 1
-    b = R
-    while b < len(cp) - 1 and cp[b + 1] in shared.DIGIT:
-        b += 1
+def _try_range(
+    cp: list[int], token: shared.DashToken, flanks: shared.RangeFlanks, form: str
+) -> Edit | None:
+    """G1-G5 over the flanks and digit runs ranges.md 3.2a's walk produced. `before`/`after` read
+    past a matched outer closed-up symbol, so G1-G3 judge the text in front of the whole member
+    rather than the symbol itself -- which is what declines `US$15-$20` on G1."""
+    L, R, a, b = flanks.left, flanks.right, flanks.a, flanks.b
 
     lrun = "".join(chr(c) for c in cp[a : L + 1])
     rrun = "".join(chr(c) for c in cp[R : b + 1])
 
-    before = shared.effective_neighbor(cp, a - 1, -1)
-    after = shared.effective_neighbor(cp, b + 1, 1)
+    before_from = a if flanks.outer_left < 0 else flanks.outer_left
+    after_from = b if flanks.outer_right < 0 else flanks.outer_right
+    before = shared.effective_neighbor(cp, before_from - 1, -1)
+    after = shared.effective_neighbor(cp, after_from + 1, 1)
 
     # G1: no letter adjacency.
     if before != NONE and is_letter(before):
@@ -87,7 +90,7 @@ def _try_range(cp: list[int], token: shared.DashToken, form: str) -> Edit | None
     if spaced:
         if token.lsp == 0 and token.rsp == 0 and shared.spacing_transition_guard_blocks(cp, token):
             return None
-        if shared.composition_guard_blocks(cp, token):
+        if shared.composition_guard_blocks(cp, token, flanks):
             return None
 
     span_start, span_end = token.span_start, token.span_end

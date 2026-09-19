@@ -21,6 +21,18 @@ INERT_DASH = frozenset({0xAD, 0x2011, 0x2012, 0x2015, 0xFE58, 0xFE63, 0xFF0D})
 JOINER = 0x2060
 DASH_OR_INERT = DASH | INERT_DASH
 
+# ranges.md 3.2a CLOSED-SYMBOL (spec 1.3.0): the symbols conventionally written closed up to a
+# number. A literal code-point set, never a Unicode category test -- a category makes the verdict
+# depend on which Unicode version a runtime was built against, and the five runtimes must agree.
+# The currency part is the U+20A0-U+20CF block by its own bounds, not the subset assigned in some
+# Unicode version: the assigned subset drifts between releases, block bounds do not.
+CLOSED_SYMBOL = (
+    frozenset({0x24})
+    | frozenset(range(0xA2, 0xA6))
+    | frozenset(range(0x20A0, 0x20D0))
+    | frozenset({0x25, 0x2030, 0x2031, 0xB0})
+)
+
 
 def at(cp: list[int], i: int) -> int:
     if i < 0 or i >= len(cp):
@@ -100,7 +112,10 @@ def find_token(cp: list[int], i: int) -> tuple[DashToken | None, int]:
     left_cp = cp[L]
     right_cp = cp[R]
 
-    if crossed_joiner and not (left_cp in DIGIT and right_cp in DIGIT):
+    # dashes.md 3.2a: re-entry across a joiner is only ever a bound range `ranges` produced on
+    # an earlier pass. Spec 1.3.0 reads that condition after the closed-up-symbol walk, so
+    # `$15<J>-<J>$20` re-enters the same way `1914<J>-<J>1918` does.
+    if crossed_joiner and range_flanks(cp, L, R) is None:
         return None, e
     if left_cp in BREAK or right_cp in BREAK:
         return None, e
@@ -133,6 +148,73 @@ def find_token(cp: list[int], i: int) -> tuple[DashToken | None, int]:
     return token, e
 
 
+@dataclass(frozen=True)
+class RangeFlanks:
+    """ranges.md 3.2a: a token's flanks after the closed-up-symbol walk, with the digit runs the
+    guards and the replacement then read. `left`/`right` are L'/R'; `outer_left`/`outer_right`
+    are the matched outer symbols' indices, or -1."""
+
+    left: int
+    right: int
+    a: int
+    b: int
+    outer_left: int
+    outer_right: int
+
+
+def range_flanks(cp: list[int], left: int, right: int) -> RangeFlanks | None:
+    """ranges.md 3.2 and 3.2a -- is this token a range candidate, and where are its digit runs?
+    None means it is not one, which is the signal that the token belongs to `dashes`.
+
+    Both sides are decided from the ORIGINAL left/right, simultaneously; a side consumes a
+    closed-up symbol only when the opposite member repeats the same code point. An unmatched
+    symbol leaves the flank a non-DIGIT, so `$15-\u20ac20` and `15-$20` are not candidates and do
+    not change hands."""
+    n = len(cp)
+    inner_right = (
+        cp[right]
+        if at(cp, right) in CLOSED_SYMBOL and right + 1 < n and cp[right + 1] in DIGIT
+        else None
+    )
+    inner_left = (
+        cp[left] if at(cp, left) in CLOSED_SYMBOL and left > 0 and cp[left - 1] in DIGIT else None
+    )
+
+    left_index = left if inner_left is None else left - 1
+    right_index = right if inner_right is None else right + 1
+    if at(cp, left_index) not in DIGIT or at(cp, right_index) not in DIGIT:
+        return None
+
+    a = left_index
+    while a > 0 and cp[a - 1] in DIGIT:
+        a -= 1
+    b = right_index
+    while b + 1 < n and cp[b + 1] in DIGIT:
+        b += 1
+
+    outer_left = -1
+    if inner_right is not None:
+        outer_left = _walk_across_joiners(cp, a - 1, -1)
+        if at(cp, outer_left) != inner_right:
+            return None
+    outer_right = -1
+    if inner_left is not None:
+        outer_right = _walk_across_joiners(cp, b + 1, 1)
+        if at(cp, outer_right) != inner_left:
+            return None
+
+    return RangeFlanks(left_index, right_index, a, b, outer_left, outer_right)
+
+
+def _skip_closed_up_symbol(cp: list[int], from_idx: int, step: int) -> int:
+    """T1's reach is transparent to one CLOSED-SYMBOL on either end of a digit run (spec 1.3.0):
+    the run it protects may be a range member carrying an outer symbol."""
+    i = _walk_across_joiners(cp, from_idx, step)
+    if at(cp, i) not in CLOSED_SYMBOL:
+        return from_idx
+    return i + step
+
+
 def _cluster_has_multiple_dash_runs(cp: list[int], s: int, e: int) -> bool:
     n = len(cp)
     cluster_alphabet = DASH | INERT_DASH | DIGIT | frozenset({JOINER})
@@ -163,11 +245,11 @@ def effective_neighbor(cp: list[int], i: int, step: int) -> int:
     return at(cp, j)
 
 
-def _two_step_lookout_blocks(cp: list[int], from_idx: int, step: int) -> bool:
-    """Reading effective neighbors outward from `from_idx` (exclusive) in `step` direction:
+def _two_step_lookout_blocks(cp: list[int], start_idx: int, step: int) -> bool:
+    """Reading effective neighbors outward from `start_idx` (inclusive) in `step` direction:
     if the first is DASH/INERT-DASH, or the first is space-like and the second (one step
     further out) is DASH/INERT-DASH, this returns True."""
-    first_idx = _walk_across_joiners(cp, from_idx + step, step)
+    first_idx = _walk_across_joiners(cp, start_idx, step)
     first = at(cp, first_idx)
     if first in DASH_OR_INERT:
         return True
@@ -186,18 +268,25 @@ def spacing_transition_guard_blocks(cp: list[int], token: DashToken) -> bool:
     n = len(cp)
     L, R = token.left_idx, token.right_idx
 
+    # Spec 1.3.0, position p1: step over a CLOSED-SYMBOL sitting between the token and the run.
+    if at(cp, L) in CLOSED_SYMBOL and L > 0 and cp[L - 1] in DIGIT:
+        L -= 1
+    if at(cp, R) in CLOSED_SYMBOL and n > R + 1 and cp[R + 1] in DIGIT:
+        R += 1
+
     if 0 <= L < n and cp[L] in DIGIT:
         d = L
         while d > 0 and cp[d - 1] in DIGIT:
             d -= 1
-        if _two_step_lookout_blocks(cp, d, -1):
+        # Position p2: and over one at the far end of the run.
+        if _two_step_lookout_blocks(cp, _skip_closed_up_symbol(cp, d - 1, -1), -1):
             return True
 
     if 0 <= R < n and cp[R] in DIGIT:
         d = R
         while d < n - 1 and cp[d + 1] in DIGIT:
             d += 1
-        if _two_step_lookout_blocks(cp, d, 1):
+        if _two_step_lookout_blocks(cp, _skip_closed_up_symbol(cp, d + 1, 1), 1):
             return True
 
     return False
@@ -208,9 +297,15 @@ CLOSE_BRACKET = frozenset({0x29, 0x5D, 0x7D})
 OPEN_BRACKET = frozenset({0x28, 0x5B, 0x7B})
 
 
-def composition_guard_blocks(cp: list[int], token: DashToken) -> bool:
+def composition_guard_blocks(
+    cp: list[int], token: DashToken, flanks: RangeFlanks | None = None
+) -> bool:
     """T2 (dashes.md 3.2 step 9): for a -spaced replacement, decline if cp[R] is in T2_SET or
-    CLOSE_BRACKET, or cp[L] is in OPEN_BRACKET."""
-    if token.right_cp in T2_SET or token.right_cp in CLOSE_BRACKET:
+    CLOSE_BRACKET, or cp[L] is in OPEN_BRACKET. `ranges` passes its walked flanks, because
+    ranges.md 3.2a makes cp[L']/cp[R'] what every shared guard sees once a closed-up symbol has
+    been consumed."""
+    left_cp = token.left_cp if flanks is None else at(cp, flanks.left)
+    right_cp = token.right_cp if flanks is None else at(cp, flanks.right)
+    if right_cp in T2_SET or right_cp in CLOSE_BRACKET:
         return True
-    return token.left_cp in OPEN_BRACKET
+    return left_cp in OPEN_BRACKET
