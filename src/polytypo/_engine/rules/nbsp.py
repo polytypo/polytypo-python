@@ -84,13 +84,15 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
 
     sub_rule_edits = [
         _n1_before_punctuation(cp, before_punct, narrow_before_punct, openish, closeish),
-        _n2_narrow_before_punctuation(cp, before_punct, narrow_before_punct, openish, closeish),
+        _n2_narrow_before_punctuation(
+            cp, before_punct, narrow_before_punct, openish, closeish, ctx["narrow_target"]
+        ),
         _n3_after_short_words(cp, nbsp_data["afterShortWords"], openish),
         _n4_abbreviations(cp, nbsp_data["abbreviations"]),
         _n5_before_units(cp, nbsp_data["beforeUnits"]),
         _n6_after_symbols(cp, nbsp_data["afterSymbols"]),
         _n7_initial_binding(cp, nbsp_data["initialBinding"], openish),
-        _n8_quotes_inner_space(cp, locale_data["quotes"]),
+        _n8_quotes_inner_space(cp, locale_data["quotes"], ctx["narrow_target"]),
         _n9_before_number(cp, nbsp_data["beforeNumber"], openish),
         _n10_before_word(cp, nbsp_data["beforeWord"], openish, nbsp_data["initialBinding"]),
     ]
@@ -200,16 +202,22 @@ def _n2_narrow_before_punctuation(
     narrow_before_punct: set[int],
     openish: frozenset[int],
     closeish: frozenset[int],
+    narrow_target: int,
 ) -> list[Edit]:
+    """nbsp.md 3.4 with NARROW-TARGET (3.1a) in place of U+202F: the already-correct state, the
+    conversion target and the insertion all move together. `other` is the NOBREAK member that is
+    not the target, which is what the sub-rule converts -- with the substitution on, N2 and N1
+    want the same character, never different ones."""
+    other = NNBSP if narrow_target == NBSP else NBSP
     return _before_punctuation_common(
         cp,
         narrow_before_punct,
         before_punct,
         openish,
         closeish,
-        NNBSP,
-        frozenset({SP, NBSP}),
-        NNBSP,
+        narrow_target,
+        frozenset({SP, other}),
+        narrow_target,
     )
 
 
@@ -461,7 +469,9 @@ def _chain_confirmed(cp: list[int], p: int, openish: frozenset[int]) -> bool:
 # ---------------------------------------------------------------- N8
 
 
-def _n8_quotes_inner_space(cp: list[int], quotes_data: dict[str, Any]) -> list[Edit]:
+def _n8_quotes_inner_space(
+    cp: list[int], quotes_data: dict[str, Any], narrow_target: int
+) -> list[Edit]:
     edits: list[Edit] = []
     n = len(cp)
     for pair_key in ("primary", "secondary"):
@@ -469,7 +479,7 @@ def _n8_quotes_inner_space(cp: list[int], quotes_data: dict[str, Any]) -> list[E
         inner = pair["innerSpace"]
         if inner == "none":
             continue
-        target = NBSP if inner == "nbsp" else NNBSP
+        target = NBSP if inner == "nbsp" else narrow_target
         open_glyph = ord(pair["open"])
         close_glyph = ord(pair["close"])
         if open_glyph == close_glyph:
