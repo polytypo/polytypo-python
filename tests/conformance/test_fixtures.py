@@ -64,6 +64,8 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
         kwargs["dialect"] = case["dialect"]
     if case.get("rules") is not None:
         kwargs["rules"] = case["rules"]
+    if case.get("narrowNbsp") is not None:
+        kwargs["narrow_nbsp"] = case["narrowNbsp"]
 
     if "throws" in case:
         with pytest.raises(PolytypoError) as excinfo:
@@ -75,7 +77,9 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
     got = polytypo.transform(case["in"], **kwargs)
     assert _escape_non_ascii(got) == _escape_non_ascii(expected)
 
-    # Free coverage, and the most common port bug (ARCHITECTURE.md 6.1).
+    # Free coverage, and the most common port bug (ARCHITECTURE.md 6.1). The re-run carries the
+    # case's OWN options: a case with `narrowNbsp` is a fixed point under that option and not
+    # under the defaults, so passing `**kwargs` here is contract, not convenience.
     twice = polytypo.transform(expected, **kwargs)
     assert _escape_non_ascii(twice) == _escape_non_ascii(expected)
 

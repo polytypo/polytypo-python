@@ -19,15 +19,29 @@ __all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
 
 def transform(
-    input: str, *, locale: str, dialect: str, rules: dict[str, bool] | None = None
+    input: str,
+    *,
+    locale: str,
+    dialect: str,
+    rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
 ) -> str:
-    return run_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+    return run_markdown_pipeline(
+        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+    )
 
 
 def analyze(
-    input: str, *, locale: str, dialect: str, rules: dict[str, bool] | None = None
+    input: str,
+    *,
+    locale: str,
+    dialect: str,
+    rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
 ) -> list[Change]:
     """The same pipeline as this entry's `transform`, reporting instead of applying
     (spec/rules/analyze.md). Offsets are code-point offsets into the **document**, not into a
     span (analyze.md section 2)."""
-    return analyze_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+    return analyze_markdown_pipeline(
+        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+    )

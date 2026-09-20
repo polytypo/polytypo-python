@@ -17,6 +17,9 @@ class RuleContext(TypedDict):
     mode: str
     dialect: str | None
     locale: str
+    # nbsp.md 3.1a NARROW-TARGET, already resolved to a code point: U+202F by default, U+00A0
+    # when the caller passed narrow_nbsp="nbsp". A rule reads a code point and never the option.
+    narrow_target: int
 
 
 RuleFn = Callable[[list[int], dict[str, Any], RuleContext], list[Edit]]

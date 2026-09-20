@@ -15,12 +15,24 @@ from polytypo.errors import PolytypoError
 __all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
 
-def transform(input: str, *, locale: str, rules: dict[str, bool] | None = None) -> str:
-    return run_html_pipeline(input, locale=locale, rules=rules)
+def transform(
+    input: str,
+    *,
+    locale: str,
+    rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
+) -> str:
+    return run_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
 
 
-def analyze(input: str, *, locale: str, rules: dict[str, bool] | None = None) -> list[Change]:
+def analyze(
+    input: str,
+    *,
+    locale: str,
+    rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
+) -> list[Change]:
     """The same pipeline as this entry's `transform`, reporting instead of applying
     (spec/rules/analyze.md). Offsets are code-point offsets into the **document**, not into a
     span (analyze.md section 2)."""
-    return analyze_html_pipeline(input, locale=locale, rules=rules)
+    return analyze_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)

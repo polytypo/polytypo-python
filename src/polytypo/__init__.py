@@ -41,13 +41,20 @@ def transform(
     mode: str | None = None,
     dialect: str | None = None,
     rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
 ) -> str:
+    """`narrow_nbsp="nbsp"` makes the engine emit U+00A0 everywhere it would emit U+202F
+    (nbsp.md 3.1a). It moves the rule's target rather than post-processing the output, so the
+    result stays a fixed point. Validation order is mode -> narrow_nbsp -> rules -> locale ->
+    dialect, and the check runs whether or not `nbsp` is enabled."""
     resolved_mode = _resolve_mode(mode)
     if resolved_mode == "text":
-        return run_text_pipeline(input, locale=locale, rules=rules)
+        return run_text_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
     if resolved_mode == "html":
-        return run_html_pipeline(input, locale=locale, rules=rules)
-    return run_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+        return run_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+    return run_markdown_pipeline(
+        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+    )
 
 
 def analyze(
@@ -57,6 +64,7 @@ def analyze(
     mode: str | None = None,
     dialect: str | None = None,
     rules: dict[str, bool] | None = None,
+    narrow_nbsp: str | None = None,
 ) -> list[Change]:
     """The same pipeline as `transform`, reporting what it would do instead of doing it
     (spec/rules/analyze.md). Offsets are code-point offsets into `input` in every mode.
@@ -68,7 +76,9 @@ def analyze(
     for the text (analyze.md sections 4 and 5)."""
     resolved_mode = _resolve_mode(mode)
     if resolved_mode == "text":
-        return analyze_text_pipeline(input, locale=locale, rules=rules)
+        return analyze_text_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
     if resolved_mode == "html":
-        return analyze_html_pipeline(input, locale=locale, rules=rules)
-    return analyze_markdown_pipeline(input, locale=locale, dialect=dialect, rules=rules)
+        return analyze_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+    return analyze_markdown_pipeline(
+        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+    )
