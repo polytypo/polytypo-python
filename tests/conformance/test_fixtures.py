@@ -66,6 +66,8 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
         kwargs["rules"] = case["rules"]
     if case.get("narrowNbsp") is not None:
         kwargs["narrow_nbsp"] = case["narrowNbsp"]
+    if case.get("keys") is not None:
+        kwargs["keys"] = case["keys"]
 
     if "throws" in case:
         with pytest.raises(PolytypoError) as excinfo:
@@ -78,8 +80,9 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
     assert _escape_non_ascii(got) == _escape_non_ascii(expected)
 
     # Free coverage, and the most common port bug (ARCHITECTURE.md 6.1). The re-run carries the
-    # case's OWN options: a case with `narrowNbsp` is a fixed point under that option and not
-    # under the defaults, so passing `**kwargs` here is contract, not convenience.
+    # case's OWN options: a case with `narrowNbsp` or `keys` is a fixed point under those and not
+    # under the defaults, so passing `**kwargs` here is contract, not convenience -- and for
+    # `keys` the re-run would not even run without it, since the option has no default.
     twice = polytypo.transform(expected, **kwargs)
     assert _escape_non_ascii(twice) == _escape_non_ascii(expected)
 

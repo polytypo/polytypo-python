@@ -22,8 +22,8 @@
 
 This is the Python implementation. The full spec — all locales, all rules, worked examples in
 each — lives in [polytypo/polytypo](https://github.com/polytypo/polytypo). This runtime supports
-the `text` and `html` modes fully, and `markdown` for the `commonmark` dialect only — `mdx`
-raises `POLYTYPO_INVALID_DIALECT` (no MDX/JSX parser is available for Python; see
+the `text`, `html` and `yaml` modes fully, and `markdown` for the `commonmark` dialect only —
+`mdx` raises `POLYTYPO_INVALID_DIALECT` (no MDX/JSX parser is available for Python; see
 [Supported dialects](#supported-dialects)).
 
 ## Install
@@ -59,11 +59,12 @@ transform('<a title="test... wait">Wait... she said "go on."</a>', locale="en-US
 # <a title="test... wait">Wait… she said “go on.”</a>
 ```
 
-`polytypo.text`, `polytypo.html` and `polytypo.markdown` each exclude the parser dependency the
-other modes don't need (importing `polytypo.text` never imports `html.parser`-based span
-extraction or tree-sitter). The aggregate `polytypo` module supports every mode via a `mode`
-keyword, defaulting to `"text"`. `locale` has no default anywhere and must always be passed
-explicitly — there is no silent fallback to English.
+`polytypo.text`, `polytypo.html`, `polytypo.markdown` and `polytypo.yaml` each exclude the
+parser dependency the other modes don't need (importing `polytypo.text` never imports
+`html.parser`-based span extraction or tree-sitter; `polytypo.yaml` needs no parser at all). The
+aggregate `polytypo` module supports every mode via a `mode` keyword, defaulting to `"text"`.
+`locale` has no default anywhere and must always be passed explicitly — there is no silent
+fallback to English.
 
 ```python
 import polytypo
@@ -71,9 +72,29 @@ import polytypo
 polytypo.transform("...", locale="fr", mode="markdown", dialect="commonmark")
 ```
 
+`yaml` mode is the one that asks something of you, and it asks for a reason. YAML is a data
+format with prose in some of it, so you name the keys whose values are prose; there is no default
+and no guess:
+
+```python
+from polytypo.yaml import transform
+
+transform(
+    "summary: Rates -- all of them...\nrun: git diff -- a--b\n", locale="en-US", keys=["summary"]
+)
+# summary: Rates—all of them…
+# run: git diff -- a--b
+```
+
+Nothing in YAML's syntax separates a sentence from a shell script: `description` holds one and
+`run` holds the other, spelled identically. Quoting, indentation, anchors and a block scalar's
+chomping indicator are never decoded and rewritten — the file is located, not re-emitted — so the
+trailing newlines of a `|+` block come back exactly as you wrote them. An empty `keys` list is
+legal and processes nothing.
+
 `analyze()` runs the same pipeline and reports what it would do instead of doing it — one record
 per edit, each with the rule that made it and code-point offsets into the input you passed (into
-the **document**, in `html` and `markdown` mode, not into a span):
+the **document**, in `html`, `markdown` and `yaml` mode, not into a span):
 
 ```python
 import polytypo
