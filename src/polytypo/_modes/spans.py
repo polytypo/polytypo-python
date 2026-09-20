@@ -14,6 +14,9 @@ from polytypo.errors import POLYTYPO_RULE_CONTRACT, PolytypoError
 
 LINE_TERMINATORS = frozenset({0x0A, 0x0D, 0x0B, 0x0C, 0x85, 0x2028, 0x2029})
 
+#: U+0020, the one emitted code point whose meaning is positional (modes.md 3.4, 5 item 2).
+SPACE = 0x20
+
 
 @dataclass(frozen=True, slots=True)
 class Span:
@@ -99,8 +102,12 @@ def filter_boundary_edits(cp: list[int], edits: list[Edit], ranges: list[SpanRan
     1. No edit may contain a marker -- one that does is a bug, discarded rather than
        redistributed.
     2. The edge-growth rule: an edit is discarded if it would place code points at an extremity
-       of its span that were not there before (p = s0 and r > d, or q = s1 and r > d, with
-       d = q - p + 1 the replaced length and r the replacement length).
+       of its span that were not there before. That sentence is the rule; "r > d" alone is an
+       incorrect formalisation of it and misses r == d. dashes P3 admits a run of THREE dashes,
+       so "---" -> U+0020 en-dash U+0020 is 3 -> 3: the length test sees nothing while U+0020
+       lands on both extremities anyway. The second clause tests the CHARACTER, and only U+0020
+       needs testing -- it is the one code point any rule emits whose meaning comes from its
+       position rather than from itself (modes.md 5 item 2).
 
     Deletion at an edge is NOT restricted here -- r > d is always false for a deletion, so this
     filter never sees one; that case is spaces.md 3.2 step 4's own edge-as-NONE clause instead.
@@ -115,8 +122,13 @@ def filter_boundary_edits(cp: list[int], edits: list[Edit], ranges: list[SpanRan
         d = edit.end - edit.start
         r = len(edit.replacement)
         span = _span_containing(ranges, p)
-        if span is not None and r > d and (p == span.first or q == span.last):
-            continue
+        if span is not None and (p == span.first or q == span.last):
+            if r > d:
+                continue
+            if r > 0 and p == span.first and edit.replacement[0] == SPACE and cp[p] != SPACE:
+                continue
+            if r > 0 and q == span.last and edit.replacement[r - 1] == SPACE and cp[q] != SPACE:
+                continue
 
         out.append(edit)
     return out

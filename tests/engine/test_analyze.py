@@ -43,7 +43,7 @@ class TestA1AcceptsAndRejectsWhatTransformDoes:
 
     def test_unknown_mode(self) -> None:
         with pytest.raises(PolytypoError) as excinfo:
-            polytypo.analyze("x", locale="en-US", mode="yaml")
+            polytypo.analyze("x", locale="en-US", mode="asciidoc")
         assert excinfo.value.code == "POLYTYPO_INVALID_MODE"
 
     def test_markdown_requires_a_dialect(self) -> None:
@@ -85,6 +85,8 @@ class TestA3EmptyExactlyWhenTransformChangesNothing:
                 kwargs: dict[str, Any] = {"locale": data["locale"], "mode": case["mode"]}
                 if case.get("dialect") is not None:
                     kwargs["dialect"] = case["dialect"]
+                if case.get("keys") is not None:
+                    kwargs["keys"] = case["keys"]
                 if case.get("rules") is not None:
                     kwargs["rules"] = case["rules"]
                 changed = polytypo.transform(case["in"], **kwargs) != case["in"]

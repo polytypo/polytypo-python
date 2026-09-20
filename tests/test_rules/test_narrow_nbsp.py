@@ -77,7 +77,7 @@ class TestValidation:
                 return error.code
             return "NO THROW"
 
-        assert code_of(locale="fr", mode="yaml", narrow_nbsp="wide") == "POLYTYPO_INVALID_MODE"
+        assert code_of(locale="fr", mode="asciidoc", narrow_nbsp="wide") == "POLYTYPO_INVALID_MODE"
         assert (
             code_of(locale="fr", narrow_nbsp="wide", rules={"nope": True})
             == "POLYTYPO_INVALID_OPTION"
