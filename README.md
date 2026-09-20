@@ -79,8 +79,9 @@ and no guess:
 ```python
 from polytypo.yaml import transform
 
-transform("summary: Rates -- all of them...\nrun: git diff -- a--b\n",
-          locale="en-US", keys=["summary"])
+transform(
+    "summary: Rates -- all of them...\nrun: git diff -- a--b\n", locale="en-US", keys=["summary"]
+)
 # summary: Rates—all of them…
 # run: git diff -- a--b
 ```
