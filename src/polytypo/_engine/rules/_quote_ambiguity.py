@@ -1,5 +1,6 @@
-"""The two decline-only predicates `quotes` reads (quotes.md 3.2, "Listed elision veto" and
-"Universal medial-`n` elision veto"). Both have the same outcome: the marks survive pass 2
+"""The three decline-only predicates `quotes` reads (quotes.md 3.2: "Listed elision veto",
+"Universal medial-`n` elision veto" and, since spec 1.4.0, "Span-boundary elision veto").
+All three have the same outcome: the marks survive pass 2
 unmatched and `apostrophe` converts each by its own case ladder, giving `rock 'n' roll` ->
 `rock ’n’ roll`. Only `quotes` consumes this module -- spec 0.5.0 had `apostrophe` consume it
 too, through a preserve set withdrawn in 1.1.0 (apostrophe.md 3.4). Mirrors polytypo-js's
@@ -9,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from polytypo._engine.sentinels import NONE
+from polytypo._engine.sentinels import MARKER, NONE
 from polytypo._engine.unicode import is_letter
 
 NARROW = frozenset({0x27, 0x2018, 0x2019, 0x201A, 0x201B, 0x2039, 0x203A})  # both vetoes' trigger
@@ -79,9 +80,68 @@ def _word_matches(cp: list[int], start: int, end: int, pattern: str) -> bool:
     return True
 
 
+def _run_matches_entry(cp: list[int], start: int, end: int, entry: str) -> bool:
+    """Compare the LETTER run cp[start..end] against a cited elisionClitics entry. The RUN's first
+    code point folds ASCII A-Z down; the entry is authored lowercase and compared as written, so an
+    entry starting uppercase is unmatchable by construction (quotes.md 3.2)."""
+    if end - start + 1 != len(entry):
+        return False
+    for offset, ch in enumerate(entry):
+        value = cp[start + offset]
+        if offset == 0 and 0x41 <= value <= 0x5A:
+            value += 32
+        if value != ord(ch):
+            return False
+    return True
+
+
+def _span_boundary_run(cp: list[int], i: int, direction: int) -> tuple[int, int] | None:
+    """The maximal LETTER run adjacent to the mark at `i` in `direction`, or None when it is empty
+    or when an ALNUM code point continues the word past it -- the bound that makes the run the
+    WHOLE fragment rather than a prefix of one."""
+    j = i + direction
+    while 0 <= j < len(cp) and is_letter(cp[j]):
+        j += direction
+    if j == i + direction:
+        return None
+    outer = _at(cp, j)
+    if outer != NONE and (is_letter(outer) or outer in DIGIT):
+        return None
+    return (j + 1, i - 1) if direction == -1 else (i + 1, j - 1)
+
+
+def _compute_span_boundary_indices(cp: list[int], locale_data: dict[str, Any]) -> set[int]:
+    """Span-boundary elision veto (quotes.md 3.2, spec 1.4.0). Fires only where one literal
+    neighbour of a NARROW mark IS modes.md 3.2's inline MARKER -- the marker stands where the
+    attaching word would be, which is why the medial-elision veto cannot see the shape. Keyed off
+    the marker and never off the mode: a `mode == "yaml"` short-circuit is forbidden (quotes.md
+    3.2, modes.md 7.4)."""
+    clitics = locale_data.get("quotes", {}).get("elisionClitics", {})
+    before = clitics.get("before", [])
+    after = clitics.get("after", [])
+    if not before and not after:
+        return set()
+
+    vetoed: set[int] = set()
+    for i, value in enumerate(cp):
+        if value not in NARROW:
+            continue
+        for neighbour, direction, entries in ((i - 1, 1, after), (i + 1, -1, before)):
+            if not entries or _at(cp, neighbour) != MARKER:
+                continue
+            run = _span_boundary_run(cp, i, direction)
+            if run is None:
+                continue
+            if any(_run_matches_entry(cp, run[0], run[1], entry) for entry in entries):
+                vetoed.add(i)
+                break
+    return vetoed
+
+
 def compute_ambiguous_indices(cp: list[int], locale_data: dict[str, Any]) -> set[int]:
     """Every index that must have both quote capabilities forced false in `quotes`' own pass 1 --
-    the union of the listed-idiom matches and the universal medial-n matches.
+    the union of the listed-idiom matches, the universal medial-n matches and, since spec 1.4.0,
+    the span-boundary matches.
 
     The union is computed rather than assumed: an idiom's `elided` field is not required to be
     the single `n` the universal veto matches.
@@ -137,4 +197,4 @@ def compute_ambiguous_indices(cp: list[int], locale_data: dict[str, Any]) -> set
         medial_n_indices.add(i)
         medial_n_indices.add(j)
 
-    return idiom_indices | medial_n_indices
+    return idiom_indices | medial_n_indices | _compute_span_boundary_indices(cp, locale_data)
