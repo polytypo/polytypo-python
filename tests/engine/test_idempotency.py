@@ -116,8 +116,14 @@ def _bounded_strings(alphabet: list[str], max_length: int):
 
 def test_bounded_exhaustive_sweep_every_locale() -> None:
     """Both the input characters and the ones the rules produce: a pass over its own output is
-    what idempotency actually asserts."""
-    alphabet = ['"', "'", "-", " ", ".", "1", "a", "«", "–", "”"]
+    what idempotency actually asserts.
+
+    ")" is here for apostrophe.md 3.3's case 2a (spec 1.5.0), under pipeline-idempotency.md 6's
+    standing obligation to widen the alphabet in the same change that fixes a defect its bound
+    cannot reach. It is the one CLOSEDELIM member the alphabet did not already hold: "”" was
+    in it as an emitted quote glyph and covers the quotation half of the class.
+    """
+    alphabet = ['"', "'", "-", " ", ".", "1", "a", "«", "–", "”", ")"]
     broken: list[str] = []
     for locale in LOCALES:
         for text in _bounded_strings(alphabet, 4):

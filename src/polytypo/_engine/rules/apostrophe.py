@@ -2,7 +2,8 @@
 as of spec 1.1.0: 0.5.0's preserve set (apostrophe.md 3.4) existed to stop the case ladder from
 converting the marks `quotes` had vetoed, and conversion is now the specified outcome for exactly
 those marks -- cases 4 and 3 are what turn `rock 'n' roll` into `rock ’n’ roll`. Case 3a (spec
-1.2.0) reads a fixed OPENQUOTE set, not locale data."""
+1.2.0) reads a fixed OPENQUOTE set and case 2a (spec 1.5.0) a fixed CLOSEDELIM set, neither of
+them locale data."""
 
 from __future__ import annotations
 
@@ -67,6 +68,12 @@ CLOSEISH = frozenset(
 # The quotation glyphs of OPENISH, without its brackets, dashes and MARKER (apostrophe.md 3.1,
 # spec 1.2.0): `f'(x)` must stay a prime, and a letter + U+0027 + dash is already case 3.
 OPENQUOTE = frozenset({0xAB, 0x2018, 0x201A, 0x201B, 0x201C, 0x201E, 0x201F, 0x2039})
+# The bracket and quotation members of CLOSEISH, without its sentence punctuation and without
+# the dashes OPENISH already carries (apostrophe.md 3.1, spec 1.5.0, case 2a). These are exactly
+# the closing delimiters case 3 has always accepted on the mark's RIGHT; before 1.5.0 no
+# left-hand test accepted any of them. No MARKER (modes.md 3.3): it is in OPENISH, so a mark
+# against a span boundary already reaches case 4 and emits the same U+2019.
+CLOSEDELIM = frozenset({0x29, 0x5D, 0x7D, 0xBB, 0x2019, 0x201D, 0x203A})
 
 
 def _at(cp: list[int], i: int) -> int:
@@ -91,6 +98,11 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
             continue  # case 1: prime guard
         if _is_alnum(left) and _is_alnum(right):
             edits.append(Edit(i, i + 1, [0x2019], RULE_ID))  # case 2: medial
+            continue
+        if left in CLOSEDELIM and _is_alnum(right):
+            # case 2a: after a closing delimiter. Disjoint from every other case, so its
+            # position in the ladder carries no behaviour.
+            edits.append(Edit(i, i + 1, [0x2019], RULE_ID))
             continue
         if (
             left != NONE
