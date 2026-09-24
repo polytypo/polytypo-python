@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="module")
-def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     build_dir = tmp_path_factory.mktemp("build")
     subprocess.run(
         [sys.executable, "-m", "build", "--wheel", "--outdir", str(build_dir), str(REPO_ROOT)],
@@ -29,12 +29,16 @@ def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     wheels = list(build_dir.glob("*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, found {wheels}"
+    return wheels[0]
 
+
+@pytest.fixture(scope="module")
+def installed_wheel(built_wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
     venv_dir = tmp_path_factory.mktemp("venv")
     venv.create(venv_dir, with_pip=True)
     venv_python = venv_dir / "bin" / "python"
     subprocess.run(
-        [str(venv_python), "-m", "pip", "install", "--quiet", str(wheels[0])],
+        [str(venv_python), "-m", "pip", "install", "--quiet", str(built_wheel)],
         check=True,
         capture_output=True,
         text=True,
@@ -59,6 +63,17 @@ def test_all_four_import_paths_work(installed_wheel: Path, tmp_path: Path) -> No
     code = "import polytypo, polytypo.text, polytypo.html, polytypo.markdown\nprint('ok')\n"
     output = _run(installed_wheel, code, tmp_path)
     assert output == "ok"
+
+
+def test_version_reports_the_installed_distribution(
+    installed_wheel: Path, built_wheel: Path, tmp_path: Path
+) -> None:
+    """`polytypo.__version__` was a hardcoded "0.0.0" through 1.6.3 while pip reported the real
+    version. It now comes from the installed distribution's metadata, so the check compares it
+    against the version in the built wheel's own filename rather than a literal."""
+    code = "import polytypo\nprint(polytypo.__version__)\n"
+    output = _run(installed_wheel, code, tmp_path)
+    assert output == built_wheel.name.split("-")[1]
 
 
 def test_py_typed_marker_is_shipped(installed_wheel: Path, tmp_path: Path) -> None:

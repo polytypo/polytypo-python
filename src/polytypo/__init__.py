@@ -9,6 +9,8 @@ needs no parser at all (modes.md 3.8.1), so it is the lightest of the four."""
 
 from __future__ import annotations
 
+from importlib import metadata as _metadata
+
 from polytypo._engine.mode_pipelines import (
     analyze_html_pipeline,
     analyze_markdown_pipeline,
@@ -24,7 +26,13 @@ from polytypo.errors import POLYTYPO_INVALID_MODE, PolytypoError
 
 __all__ = ["Change", "PolytypoError", "analyze", "transform"]
 
-__version__ = "0.0.0"
+try:
+    __version__ = _metadata.version("polytypo")
+except _metadata.PackageNotFoundError:
+    # Source tree on sys.path with nothing installed; there is no distribution to read a
+    # version from, and pyproject.toml is not shipped in the wheel so it cannot be the
+    # fallback either. 0.0.0 is the same placeholder scripts/verify_release_tag.py rejects.
+    __version__ = "0.0.0"
 
 
 def _resolve_mode(mode: str | None) -> str:
