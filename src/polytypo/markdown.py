@@ -25,9 +25,15 @@ def transform(
     dialect: str,
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> str:
     return run_markdown_pipeline(
-        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+        input,
+        locale=locale,
+        dialect=dialect,
+        rules=rules,
+        narrow_nbsp=narrow_nbsp,
+        frontmatter_keys=frontmatter_keys,
     )
 
 
@@ -38,10 +44,16 @@ def analyze(
     dialect: str,
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> list[Change]:
     """The same pipeline as this entry's `transform`, reporting instead of applying
     (spec/rules/analyze.md). Offsets are code-point offsets into the **document**, not into a
     span (analyze.md section 2)."""
     return analyze_markdown_pipeline(
-        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+        input,
+        locale=locale,
+        dialect=dialect,
+        rules=rules,
+        narrow_nbsp=narrow_nbsp,
+        frontmatter_keys=frontmatter_keys,
     )

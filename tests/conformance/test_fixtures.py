@@ -68,6 +68,8 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
         kwargs["narrow_nbsp"] = case["narrowNbsp"]
     if case.get("keys") is not None:
         kwargs["keys"] = case["keys"]
+    if case.get("frontmatterKeys") is not None:
+        kwargs["frontmatter_keys"] = case["frontmatterKeys"]
 
     if "throws" in case:
         with pytest.raises(PolytypoError) as excinfo:

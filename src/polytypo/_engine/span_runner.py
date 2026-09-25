@@ -39,6 +39,38 @@ def _run_rules_over_spans(
     return current
 
 
+def _replacements_of_unit(
+    source: str,
+    spans: list[Span],
+    plan: list[str],
+    locale_data: dict[str, Any],
+    ctx: RuleContext,
+) -> list[tuple[Span, str]]:
+    """One text unit (modes.md 3.1): the marker-separated concatenation, the pipeline, and the
+    pieces it produced, paired with the spans they replace."""
+    normalized = normalize_spans(spans)
+    if not normalized:
+        return []
+    concatenated = concatenate_spans(source, normalized)
+    transformed = _run_rules_over_spans(concatenated, plan, locale_data, ctx)
+    pieces = split_on_marker(transformed, len(normalized))
+    return [(span, from_codepoints(piece)) for span, piece in zip(normalized, pieces, strict=True)]
+
+
+def _emit(source: str, replacements: list[tuple[Span, str]]) -> str:
+    """modes.md 4: the source with disjoint replacements applied at recorded offsets, and nothing
+    else changed."""
+    out: list[str] = []
+    cursor = 0
+    for span, replacement in replacements:
+        original = source[span.start : span.end]
+        out.append(source[cursor : span.start])
+        out.append(original if replacement == original else replacement)
+        cursor = span.end
+    out.append(source[cursor:])
+    return "".join(out)
+
+
 def run_over_spans(
     source: str,
     spans: list[Span],
@@ -50,24 +82,41 @@ def run_over_spans(
     else (modes.md 4). A span whose content the rules did not change contributes no replacement,
     so a document needing no changes comes back byte-identical; the parser located the spans and
     was then discarded, and the document is never serialised."""
-    normalized = normalize_spans(spans)
-    if not normalized:
-        return source
+    return _emit(source, _replacements_of_unit(source, spans, plan, locale_data, ctx))
 
-    concatenated = concatenate_spans(source, normalized)
-    transformed = _run_rules_over_spans(concatenated, plan, locale_data, ctx)
-    pieces = split_on_marker(transformed, len(normalized))
 
-    out: list[str] = []
-    cursor = 0
-    for span, piece in zip(normalized, pieces, strict=True):
-        replacement = from_codepoints(piece)
-        original = source[span.start : span.end]
-        out.append(source[cursor : span.start])
-        out.append(original if replacement == original else replacement)
-        cursor = span.end
-    out.append(source[cursor:])
-    return "".join(out)
+def run_over_units(
+    source: str,
+    units: list[list[Span]],
+    plan: list[str],
+    locale_data: dict[str, Any],
+    ctx: RuleContext,
+) -> str:
+    """modes.md 3.1 and 3.5 step 3 (spec 1.7.0). A document has one text unit, except in
+    ``markdown`` with ``frontmatter_keys``, where the frontmatter block's spans form a unit of
+    their own. The pipeline runs once per unit and the two edit sets are disjoint, because no span
+    of one unit lies inside the other -- which is what the body's span walk skipping the block
+    guarantees. Only step 5 is shared: the source is emitted once, in document order."""
+    replacements: list[tuple[Span, str]] = []
+    for spans in units:
+        replacements.extend(_replacements_of_unit(source, spans, plan, locale_data, ctx))
+    replacements.sort(key=lambda pair: pair[0].start)
+    return _emit(source, replacements)
+
+
+def analyze_over_units(
+    source: str,
+    units: list[list[Span]],
+    plan: list[str],
+    locale_data: dict[str, Any],
+    ctx: RuleContext,
+) -> list[Change]:
+    """`analyze_over_spans` per text unit (modes.md 3.1), reported in document order."""
+    changes: list[Change] = []
+    for spans in units:
+        changes.extend(analyze_over_spans(source, spans, plan, locale_data, ctx))
+    changes.sort(key=lambda change: change.start)
+    return changes
 
 
 def analyze_over_spans(

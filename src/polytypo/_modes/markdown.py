@@ -233,6 +233,55 @@ def _walk_block(
         _walk_block(spans, source, offsets, source_bytes, child)
 
 
+def frontmatter_spans(source: str, dialect: str | None, keys: frozenset[str]) -> list[Span]:
+    """modes.md 3.7.4, spec 1.7.0. The frontmatter block's own spans, which form a **second text
+    unit**: the pipeline runs over them separately from the body's, so an unbalanced mark in a
+    metadata field can never pair with one in the first paragraph, and the option cannot change a
+    byte outside the block.
+
+    Spans come from the scan of modes.md 3.8 -- frontmatter *is* YAML, and implementing that
+    grammar twice is how two implementations of one spec drift -- with ``keys`` as step 8's key
+    predicate. The block is the construct ``markdown_spans`` skips (3.7.3, ``minus_metadata``), so
+    the option only ever adds spans where the skip removed them: no source position belongs to
+    both units. A TOML block (``plus_metadata``) yields nothing, with the option or without it:
+    its quoting is a second grammar this scan does not claim (modes.md 7.13)."""
+    from polytypo._modes.yaml import yaml_spans
+
+    if not keys:
+        return []
+    source_bytes = source.encode("utf-8")
+    offsets = _ByteOffsets(source)
+    tree = Parser(_BLOCK_LANGUAGE).parse(source_bytes)
+    for child in tree.root_node.children:
+        if child.type == "plus_metadata":
+            return []
+        if child.type != "minus_metadata":
+            continue
+        block = source_bytes[child.start_byte : child.end_byte].decode("utf-8")
+        # 3.7.4: the content runs from after the opening delimiter line's terminator to the code
+        # point that begins the closing delimiter line, and both delimiters stay outside every
+        # span. A U+000D before that terminator belongs to the terminator (3.8.4), so a CRLF
+        # document and the same bytes with LF give the same content.
+        first_break = block.find("\n")
+        if first_break < 0:
+            return []
+        content_start = first_break + 1
+        closer_start = -1
+        for index in range(content_start, len(block)):
+            if index != content_start and block[index - 1] != "\n":
+                continue
+            if block.startswith("---", index):
+                closer_start = index
+        if closer_start < 0:
+            return []
+        base = offsets.char_of(child.start_byte) + content_start
+        return [
+            Span(span.start + base, span.end + base)
+            for span in yaml_spans(block[content_start:closer_start], keys)
+        ]
+    return []
+
+
 def markdown_spans(source: str, dialect: str | None) -> list[Span]:
     """Locate the processable spans of a Markdown document. `resolve_dialect` must be called by
     the caller before this (it raises before any parsing is attempted for an unsupported

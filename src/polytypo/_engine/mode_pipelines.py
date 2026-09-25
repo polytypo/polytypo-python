@@ -15,9 +15,14 @@ from polytypo._engine.narrow_target import resolve_narrow_target
 from polytypo._engine.origin import Change
 from polytypo._engine.pipeline import prepare, run_rules, run_rules_recording
 from polytypo._engine.registry import RuleContext
-from polytypo._engine.span_runner import analyze_over_spans, run_over_spans
-from polytypo._engine.yaml_keys import resolve_yaml_keys
-from polytypo._modes.spans import normalize_spans
+from polytypo._engine.span_runner import (
+    analyze_over_spans,
+    analyze_over_units,
+    run_over_spans,
+    run_over_units,
+)
+from polytypo._engine.yaml_keys import resolve_frontmatter_keys, resolve_yaml_keys
+from polytypo._modes.spans import Span, normalize_spans
 
 
 def run_text_pipeline(
@@ -67,20 +72,36 @@ def run_markdown_pipeline(
     dialect: str | None,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> str:
-    from polytypo._modes.markdown import markdown_spans, resolve_dialect
+    from polytypo._modes.markdown import resolve_dialect
 
     narrow_target = resolve_narrow_target(narrow_nbsp)
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolve_dialect(dialect)
+    resolved_keys = resolve_frontmatter_keys(frontmatter_keys)
     ctx: RuleContext = {
         "mode": "markdown",
         "dialect": dialect,
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
-    spans = normalize_spans(markdown_spans(input_text, dialect))
-    return run_over_spans(input_text, spans, plan, locale_data, ctx)
+    units = _markdown_units(input_text, dialect, resolved_keys)
+    return run_over_units(input_text, units, plan, locale_data, ctx)
+
+
+def _markdown_units(
+    input_text: str, dialect: str | None, keys: frozenset[str] | None
+) -> list[list[Span]]:
+    """modes.md 3.7.4: the body, and -- only when the caller named frontmatter keys -- the
+    frontmatter block as a second text unit. Without the option this is exactly the single unit
+    every document had before spec 1.7.0, which is why no released output can move."""
+    from polytypo._modes.markdown import frontmatter_spans, markdown_spans
+
+    body = normalize_spans(markdown_spans(input_text, dialect))
+    if keys is None:
+        return [body]
+    return [normalize_spans(frontmatter_spans(input_text, dialect, keys)), body]
 
 
 def run_yaml_pipeline(
@@ -162,23 +183,25 @@ def analyze_markdown_pipeline(
     dialect: str | None,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> list[Change]:
     """analyze.md section 1, `markdown` mode. Dialect validation happens here exactly as it does
     for `run_markdown_pipeline`, so an absent or unsupported dialect raises
     POLYTYPO_INVALID_DIALECT from `analyze` too (analyze.md section 4, A1)."""
-    from polytypo._modes.markdown import markdown_spans, resolve_dialect
+    from polytypo._modes.markdown import resolve_dialect
 
     narrow_target = resolve_narrow_target(narrow_nbsp)
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolve_dialect(dialect)
+    resolved_keys = resolve_frontmatter_keys(frontmatter_keys)
     ctx: RuleContext = {
         "mode": "markdown",
         "dialect": dialect,
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
-    spans = normalize_spans(markdown_spans(input_text, dialect))
-    return analyze_over_spans(input_text, spans, plan, locale_data, ctx)
+    units = _markdown_units(input_text, dialect, resolved_keys)
+    return analyze_over_units(input_text, units, plan, locale_data, ctx)
 
 
 def analyze_yaml_pipeline(

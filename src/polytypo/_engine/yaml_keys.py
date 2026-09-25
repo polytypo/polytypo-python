@@ -30,3 +30,29 @@ def resolve_yaml_keys(value: object) -> frozenset[str]:
                 f'"keys" must contain only strings; received {key!r}.',
             )
     return frozenset(value)
+
+
+def resolve_frontmatter_keys(value: object) -> frozenset[str] | None:
+    """modes.md 3.7.4: ``markdown`` mode's ``frontmatter_keys`` (spec 1.7.0).
+
+    Optional, unlike ``keys`` -- absent means the frontmatter block is skipped whole, which is
+    every pre-1.7.0 document's behaviour -- and an empty sequence is legal, exactly as it is for
+    ``keys``. Checked after ``dialect`` and before the parse, which is what decides that a
+    document failing to parse in its dialect still reports the option error rather than
+    POLYTYPO_MALFORMED_INPUT. A separate function from ``resolve_yaml_keys`` because the two
+    differ exactly where sharing one would bite: this option has no requiredness."""
+    if value is None:
+        return None
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise PolytypoError(
+            POLYTYPO_INVALID_OPTION,
+            '"frontmatter_keys" must be a sequence of strings when given '
+            f"(modes.md 3.7.4). Received {value!r}.",
+        )
+    for key in value:
+        if not isinstance(key, str):
+            raise PolytypoError(
+                POLYTYPO_INVALID_OPTION,
+                f'"frontmatter_keys" must contain only strings; received {key!r}.',
+            )
+    return frozenset(value)

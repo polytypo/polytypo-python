@@ -55,6 +55,7 @@ def transform(
     keys: object = None,
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> str:
     """`narrow_nbsp="nbsp"` makes the engine emit U+00A0 everywhere it would emit U+202F
     (nbsp.md 3.1a). It moves the rule's target rather than post-processing the output, so the
@@ -74,7 +75,12 @@ def transform(
             input, locale=locale, keys=keys, rules=rules, narrow_nbsp=narrow_nbsp
         )
     return run_markdown_pipeline(
-        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+        input,
+        locale=locale,
+        dialect=dialect,
+        rules=rules,
+        narrow_nbsp=narrow_nbsp,
+        frontmatter_keys=frontmatter_keys,
     )
 
 
@@ -87,6 +93,7 @@ def analyze(
     keys: object = None,
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
+    frontmatter_keys: object = None,
 ) -> list[Change]:
     """The same pipeline as `transform`, reporting what it would do instead of doing it
     (spec/rules/analyze.md). Offsets are code-point offsets into `input` in every mode.
@@ -106,5 +113,10 @@ def analyze(
             input, locale=locale, keys=keys, rules=rules, narrow_nbsp=narrow_nbsp
         )
     return analyze_markdown_pipeline(
-        input, locale=locale, dialect=dialect, rules=rules, narrow_nbsp=narrow_nbsp
+        input,
+        locale=locale,
+        dialect=dialect,
+        rules=rules,
+        narrow_nbsp=narrow_nbsp,
+        frontmatter_keys=frontmatter_keys,
     )

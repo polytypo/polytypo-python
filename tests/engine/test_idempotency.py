@@ -135,6 +135,49 @@ def test_bounded_exhaustive_sweep_every_locale() -> None:
     assert broken == []
 
 
+def test_bounded_sweep_markdown_frontmatter_two_units() -> None:
+    """modes.md 5, spec 1.7.0: the ``markdown`` sweep must also carry a template with a
+    frontmatter block and ``frontmatter_keys`` naming a key in it. Such a document has **two text
+    units** (3.1), a composition no single-unit template reaches: the pipeline runs twice and the
+    two edit sets are merged into one emission, so a mistake there shows up as a document that is
+    not a fixed point even though each unit is.
+
+    The alphabet is the yaml one, since the scan inside the block is 3.8's: ``:``, ``#``, ``-``
+    and ``---`` as one token are the characters whose adjacency to an emitted U+0020 the
+    span-stability argument turns on."""
+    alphabet = ['"', "'", "-", ":", "#", " ", ".", "a", "---"]
+    templates = [
+        ("plain scalar and body", lambda a, b: f"---\nk: {a}\n---\n\n{b}\n"),
+        ("two scalars", lambda a, b: f"---\nk: {a}\nj: {b}\n---\n\nbody\n"),
+        ("block scalar and body", lambda a, b: f"---\nk: |\n  {a}\n---\n\nbody {b} end\n"),
+    ]
+    broken: list[str] = []
+    for locale in LOCALES:
+        for label, build in templates:
+            for a in _bounded_strings(alphabet, 2):
+                for b in _bounded_strings(alphabet, 2):
+                    source = build(a, b)
+                    once = polytypo.transform(
+                        source,
+                        locale=locale,
+                        mode="markdown",
+                        dialect="commonmark",
+                        frontmatter_keys=["k", "j"],
+                    )
+                    twice = polytypo.transform(
+                        once,
+                        locale=locale,
+                        mode="markdown",
+                        dialect="commonmark",
+                        frontmatter_keys=["k", "j"],
+                    )
+                    if twice != once:
+                        broken.append(f"{locale} {label}: {source!r}")
+                        if len(broken) >= 10:
+                            break
+    assert broken == []
+
+
 def test_mixed_kind_straight_marks_are_idempotent() -> None:
     """A straight mark of one kind stranded inside a span quoted with the other kind
     (`"a 'b" c'`) is the shape that broke quotes' first repair attempt; this discriminates."""
