@@ -1,0 +1,26 @@
+# Paths under canonical polytypo's spec/ that this repository deliberately does not vendor, so
+# check-vendored-spec.sh must not expect them here. Every other file canonical has at tag
+# spec-v$(cat VERSION) must be present here, or the check fails naming it — which is how a
+# vendored file that was deleted, or a canonical file that was never copied, is caught.
+#
+# An entry canonical does not have at that tag is an error, and so is an entry that is also
+# present here: this list records deliberate omissions, not exemptions.
+#
+# CONFORMANCE.md is canonical's own conformance matrix, written after a release. Nothing here
+# reads it, and it is the one canonical file a released spec version may still gain.
+CONFORMANCE.md
+
+# The prose subset here is rules/dashes.md and rules/order.json — what this repository's build and
+# test suite read. The remaining rule documents are the normative prose, read in canonical.
+rules/analyze.md
+rules/apostrophe.md
+rules/ellipsis.md
+rules/hyphen.md
+rules/locale-resolution.md
+rules/modes.md
+rules/nbsp.md
+rules/pipeline-idempotency.md
+rules/quotes.md
+rules/ranges.md
+rules/spaces.md
+rules/symbols.md
