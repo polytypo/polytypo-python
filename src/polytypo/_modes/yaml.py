@@ -27,20 +27,24 @@ SPACE = " "
 
 
 @dataclass(frozen=True, slots=True)
-class _Line:
+class Line:
     start: int
     #: Index of the line terminator, or of the end of the source -- never inside a span.
     end: int
 
 
-def _split_lines(source: str) -> list[_Line]:
+def split_lines(source: str) -> list[Line]:
     """3.8.4: a line ends at U+000A, and **a U+000D immediately before it is not part of the
     line** -- it is a terminator like the U+000A itself, so it lies outside every span and comes
     back untouched. Without that clause a CRLF file behaves differently from the same bytes with
     LF: the block header reads as ``|\\r`` and is unrecognised, and a plain scalar carries the
     carriage return inside its span. Five runtimes split lines with five different standard-library
-    calls, so the treatment has to be stated rather than inherited."""
-    lines: list[_Line] = []
+    calls, so the treatment has to be stated rather than inherited.
+
+    Shared with `_modes.markdown` rather than private to this module: 3.7.4's per-line bail on a
+    lone U+000D is defined in 3.8.4's line terms, so it has to ask 3.8.4's splitter rather than
+    keep a second copy of this clause -- which is the drift 3.8.1 exists to prevent."""
+    lines: list[Line] = []
     start = 0
 
     def end_of(i: int) -> int:
@@ -48,25 +52,25 @@ def _split_lines(source: str) -> list[_Line]:
 
     for i, ch in enumerate(source):
         if ch == LF:
-            lines.append(_Line(start, end_of(i)))
+            lines.append(Line(start, end_of(i)))
             start = i + 1
     if start < len(source):
-        lines.append(_Line(start, end_of(len(source))))
+        lines.append(Line(start, end_of(len(source))))
     return lines
 
 
-def _first_non_space(source: str, line: _Line) -> int:
+def _first_non_space(source: str, line: Line) -> int:
     i = line.start
     while i < line.end and source[i] == SPACE:
         i += 1
     return i
 
 
-def _is_blank(source: str, line: _Line) -> bool:
+def _is_blank(source: str, line: Line) -> bool:
     return _first_non_space(source, line) == line.end
 
 
-def _has_tab(source: str, line: _Line) -> bool:
+def _has_tab(source: str, line: Line) -> bool:
     return TAB in source[line.start : line.end]
 
 
@@ -98,7 +102,7 @@ def _is_sequence_dash(source: str, j: int, end: int) -> bool:
     return j + 1 == end or source[j + 1] == SPACE
 
 
-def _value_run_end(source: str, lines: list[_Line], li: int, indent: int) -> int:
+def _value_run_end(source: str, lines: list[Line], li: int, indent: int) -> int:
     """The value run of 3.8.4 step 7: every following line that is blank or indented more than
     the key line. **Those lines are never scanned again** -- without that, a multi-line quoted
     scalar, a multi-line flow collection and a folded plain scalar all leak their continuation
@@ -114,7 +118,7 @@ def _value_run_end(source: str, lines: list[_Line], li: int, indent: int) -> int
 
 
 def yaml_spans(source: str, keys: frozenset[str]) -> list[Span]:
-    lines = _split_lines(source)
+    lines = split_lines(source)
     spans: list[Span] = []
     li = 0
     while li < len(lines):
@@ -123,7 +127,7 @@ def yaml_spans(source: str, keys: frozenset[str]) -> list[Span]:
 
 
 def _scan_line(
-    source: str, lines: list[_Line], li: int, keys: frozenset[str], spans: list[Span]
+    source: str, lines: list[Line], li: int, keys: frozenset[str], spans: list[Span]
 ) -> int:
     """One step of 3.8.4. Returns the index of the next line to scan."""
     line = lines[li]
@@ -201,7 +205,7 @@ def _scan_line(
 
 def _block_scalar(
     source: str,
-    lines: list[_Line],
+    lines: list[Line],
     li: int,
     run_end: int,
     indent: int,
@@ -236,7 +240,7 @@ def _block_scalar(
         return
 
     # One definition of the run, and three conditions that make the whole block yield no spans.
-    content: list[_Line] = []
+    content: list[Line] = []
     content_indent = -1
     for k in range(li + 1, run_end):
         nxt = lines[k]
@@ -261,7 +265,7 @@ def _block_scalar(
             spans.append(Span(from_, c_line.end))
 
 
-def _quoted_scalar(source: str, line: _Line, v: int, spans: list[Span]) -> None:
+def _quoted_scalar(source: str, line: Line, v: int, spans: list[Span]) -> None:
     """3.8.6. The span is the content between the quotes. Both bails exist so that source
     characters and content characters are the same thing, which the offset model of 3.1 requires --
     the same constraint that makes an HTML character reference an opaque unit in 3.6. No colon test
@@ -293,7 +297,7 @@ def _quoted_scalar(source: str, line: _Line, v: int, spans: list[Span]) -> None:
         spans.append(Span(v + 1, close))
 
 
-def _plain_scalar(source: str, line: _Line, v: int, spans: list[Span]) -> None:
+def _plain_scalar(source: str, line: Line, v: int, spans: list[Span]) -> None:
     """3.8.6. In a plain scalar ``:`` and ``#`` are still live: U+0020 beside either of them is
     what turns a scalar into a mapping indicator or a comment, and ``dashes`` emits U+0020 in every
     ``-spaced`` locale. Lifting both out as opaque units puts the dash token at a span extremity,
