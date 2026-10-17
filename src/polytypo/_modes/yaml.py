@@ -266,24 +266,33 @@ def _block_scalar(
 
 
 def _quoted_scalar(source: str, line: Line, v: int, spans: list[Span]) -> None:
-    """3.8.6. The span is the content between the quotes. Both bails exist so that source
-    characters and content characters are the same thing, which the offset model of 3.1 requires --
-    the same constraint that makes an HTML character reference an opaque unit in 3.6. No colon test
-    applies here: quoting neutralises the colon, and applying the plain-scalar test would decline
+    """3.8.6. The span is the content between the quotes. A backslash in a double-quoted scalar
+    declines the scalar, so that source characters and content characters are the same thing,
+    which the offset model of 3.1 requires. In a single-quoted scalar each ``''`` pair is an opaque
+    two-code-point unit instead: the range is split around it and the unit lies outside every span
+    -- the same treatment an HTML character reference gets in 3.6. No colon test applies here:
+    quoting neutralises the colon, and applying the plain-scalar test would decline
     ``title: "Chapter 1: the beginning"``."""
     quote = source[v]
+    starts: list[tuple[int, int]] = []
     close = -1
+    segment = v + 1
     j = v + 1
     while j < line.end:
         c = source[j]
         if quote == '"' and c == "\\":
             return
-        if quote == "'" and c == "'" and j + 1 < line.end and source[j + 1] == "'":
-            return
-        if c == quote:
-            close = j
-            break
-        j += 1
+        if c != quote:
+            j += 1
+            continue
+        if quote == "'" and j + 1 < line.end and source[j + 1] == "'":
+            if j > segment:
+                starts.append((segment, j))
+            segment = j + 2
+            j += 2
+            continue
+        close = j
+        break
     if close < 0:
         return
 
@@ -293,8 +302,10 @@ def _quoted_scalar(source: str, line: Line, v: int, spans: list[Span]) -> None:
     if after < line.end and source[after] != "#":
         return
 
-    if close > v + 1:
-        spans.append(Span(v + 1, close))
+    if close > segment:
+        starts.append((segment, close))
+    for start, end in starts:
+        spans.append(Span(start, end))
 
 
 def _plain_scalar(source: str, line: Line, v: int, spans: list[Span]) -> None:

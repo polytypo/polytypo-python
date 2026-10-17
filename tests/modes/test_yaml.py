@@ -121,7 +121,6 @@ def test_continuation_lines_are_consumed_never_rescanned(name: str, source: str)
         ("an alias", "a: *anchor\n"),
         ("a tag", "a: !!str one two...\n"),
         ("a double-quoted scalar with an escape", 'a: "one \\"two\\"... three"\n'),
-        ("a single-quoted scalar with an escaped quote", "a: 'it''s one two...'\n"),
         ("a tab anywhere on the line", "a:\tone two...\n"),
         ("a compact nested sequence", "a: - one two...\n"),
         ("a compact nested mapping", "a: one two .:\n"),
@@ -133,6 +132,30 @@ def test_skip_by_default(name: str, source: str) -> None:
     """modes.md 3.8.3: a construct the scan does not recognise yields no spans, byte for byte."""
     assert span_text(source) == [], name
     assert yaml(source) == source, name
+
+
+class TestSingleQuoteEscape:
+    """modes.md 3.8.6, spec 1.9.0: a doubled apostrophe is an opaque unit; the range splits."""
+
+    @pytest.mark.parametrize(
+        "source,expected",
+        [
+            ("a: 'it''s one...two'\n", ["it", "s one...two"]),
+            ("a: '''one...two'''\n", ["one...two"]),
+            ("a: ''''\n", []),
+            ("a: 'it''s one...two\n", []),
+            ("a: 'it''s one...two' # c\n", ["it", "s one...two"]),
+            ("a: 'one''two' x\n", []),
+        ],
+    )
+    def test_spans(self, source: str, expected: list[str]) -> None:
+        assert span_text(source) == expected
+
+    def test_the_apostrophe_stays_and_the_ellipsis_converts(self) -> None:
+        assert yaml("a: 'it''s one...two'\n") == "a: 'it''s one\u2026two'\n"
+
+    def test_double_quoted_backslash_still_declines(self) -> None:
+        assert span_text('a: "it\\"s one...two"\n') == []
 
 
 def test_a_file_that_is_not_yaml_comes_back_unchanged_and_never_throws() -> None:
