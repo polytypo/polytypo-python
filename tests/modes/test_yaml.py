@@ -158,6 +158,37 @@ class TestSingleQuoteEscape:
         assert span_text('a: "it\\"s one...two"\n') == []
 
 
+class TestLoneCarriageReturn:
+    """modes.md 3.8.4 steps 1 and 9, 3.8.5, spec 1.10.0: a U+000D that is not part of a terminator
+    never lands inside a span; the line, or the whole block, is declined."""
+
+    @pytest.mark.parametrize(
+        "source,expected",
+        [
+            ("title: a\rb -- c\n", "title: a\rb -- c\n"),
+            ("title: a -- b\r", "title: a\u2014b\r"),
+            ("title: a -- b\r\r", "title: a -- b\r\r"),
+            ("title: a -- b\r\r\n", "title: a -- b\r\r\n"),
+            ("title: |\n  a -- b\n  c\rd -- e\n", "title: |\n  a -- b\n  c\rd -- e\n"),
+            ("title: a -- b\r\ntitle: c -- d\r\n", "title: a\u2014b\r\ntitle: c\u2014d\r\n"),
+            (
+                "title: |\n  a -- b\n\r  \n  c -- d\n",
+                "title: |\n  a\u2014b\n\r  \n  c -- d\n",
+            ),
+        ],
+    )
+    def test_output(self, source: str, expected: str) -> None:
+        assert yaml(source, keys=["title"]) == expected
+
+    def test_a_declined_line_still_consumes_its_value_run(self) -> None:
+        source = "summary: a\rb\n  title: c -- d\n"
+        assert yaml(source, keys=["title", "summary"]) == source
+
+    def test_no_span_contains_a_carriage_return(self) -> None:
+        for source in ("title: a\rb -- c\n", "title: 'a\rb' -- c\n", 'title: "a\rb"\n'):
+            assert span_text(source, keys=["title"]) == [], source
+
+
 def test_a_file_that_is_not_yaml_comes_back_unchanged_and_never_throws() -> None:
     source = "{{ not yaml at all ... }}\n\t\tmixed\tindentation\n"
     assert yaml(source) == source

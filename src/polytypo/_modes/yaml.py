@@ -74,6 +74,12 @@ def _has_tab(source: str, line: Line) -> bool:
     return TAB in source[line.start : line.end]
 
 
+def _has_cr(source: str, line: Line) -> bool:
+    """3.8.4 step 9 and 3.8.5: a U+000D left inside a line is not part of any terminator -- it is
+    a lone carriage return, and it must never land inside a span."""
+    return CR in source[line.start : line.end]
+
+
 def _is_document_marker(source: str, from_: int, end: int) -> bool:
     """3.8.4 step 3. ``---`` and ``...`` at the head of a line, bare or introducing a node: the
     trailing-content form is declined too, so ``--- key: value`` never yields a key of
@@ -187,7 +193,12 @@ def _scan_line(
     if source[key_start:key_end] not in keys:
         return nxt
 
-    # step 9 -- the scalar form.
+    # step 9 -- a lone U+000D declines the line. After step 8 and before the form switch: the value
+    # run is still consumed, so the continuation lines are not rescanned as mapping lines.
+    if _has_cr(source, line):
+        return nxt
+
+    # the scalar form.
     value = source[v]
     if value in ("#", "&", "*", "!", "{", "["):
         return nxt
@@ -239,14 +250,14 @@ def _block_scalar(
     if h < line.end and source[h] != "#":
         return
 
-    # One definition of the run, and three conditions that make the whole block yield no spans.
+    # One definition of the run, and four conditions that make the whole block yield no spans.
     content: list[Line] = []
     content_indent = -1
     for k in range(li + 1, run_end):
         nxt = lines[k]
         if _is_blank(source, nxt):
             continue  # blank lines belong to the block and yield no span
-        if _has_tab(source, nxt):
+        if _has_tab(source, nxt) or _has_cr(source, nxt):
             return
         next_indent = _first_non_space(source, nxt) - nxt.start
         if content_indent < 0:

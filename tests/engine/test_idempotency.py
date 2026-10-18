@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 import polytypo
 from polytypo._engine.locale import _registry  # noqa: SLF001 -- test-only introspection
+from polytypo._modes.yaml import yaml_spans
 
 VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "polytypo-spec"
 LOCALES = sorted(_registry()["locales"])
@@ -145,7 +146,10 @@ def test_bounded_sweep_markdown_frontmatter_two_units() -> None:
     The alphabet is the yaml one, since the scan inside the block is 3.8's: ``:``, ``#``, ``-``
     and ``---`` as one token are the characters whose adjacency to an emitted U+0020 the
     span-stability argument turns on."""
-    alphabet = ['"', "'", "-", ":", "#", " ", ".", "a", "---"]
+    alphabet = ['"', "'", "-", ":", "#", " ", ".", "a", "---", "\r"]
+    # U+000D (spec 1.10.0) joins `a`'s alphabet only, and `b` drops the letter `a`, which `a`
+    # already carries: the document count stays at the pre-1.10.0 figure instead of growing 36%.
+    b_alphabet = [t for t in alphabet if t not in ("a", "\r")]
     templates = [
         ("plain scalar and body", lambda a, b: f"---\nk: {a}\n---\n\n{b}\n"),
         ("two scalars", lambda a, b: f"---\nk: {a}\nj: {b}\n---\n\nbody\n"),
@@ -155,7 +159,7 @@ def test_bounded_sweep_markdown_frontmatter_two_units() -> None:
     for locale in LOCALES:
         for label, build in templates:
             for a in _bounded_strings(alphabet, 2):
-                for b in _bounded_strings(alphabet, 2):
+                for b in _bounded_strings(b_alphabet, 2):
                     source = build(a, b)
                     once = polytypo.transform(
                         source,
@@ -175,6 +179,31 @@ def test_bounded_sweep_markdown_frontmatter_two_units() -> None:
                         broken.append(f"{locale} {label}: {source!r}")
                         if len(broken) >= 10:
                             break
+    assert broken == []
+
+
+def test_bounded_sweep_yaml_no_span_contains_a_line_terminator() -> None:
+    """modes.md 3.8.4 and 5, spec 1.10.0: the property is read off the spans, because no rule emits
+    or deletes a U+000D and the output therefore never shows one inside a span. Locale-independent
+    and transform-free, so it costs a fraction of the output sweeps."""
+    alphabet = ["a", " ", "\r", "\n", ":", "#", "'", '"', "-", "|"]
+    templates = [
+        lambda p: f"title: {p}\n",
+        lambda p: f'title: "{p}"\n',
+        lambda p: f"title: '{p}'\n",
+        lambda p: f"title: |\n  {p}\n  x\n",
+        lambda p: f"title: {p}",
+        lambda p: f"{p}title: a\n",
+        lambda p: f"title: a\r\n  {p}\r\n",
+    ]
+    keys = frozenset(["title"])
+    broken: list[str] = []
+    for build in templates:
+        for payload in _bounded_strings(alphabet, 3):
+            source = build(payload)
+            for span in yaml_spans(source, keys):
+                if "\r" in source[span.start : span.end] or "\n" in source[span.start : span.end]:
+                    broken.append(repr(source))
     assert broken == []
 
 
