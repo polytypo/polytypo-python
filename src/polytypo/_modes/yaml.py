@@ -108,6 +108,11 @@ def _is_sequence_dash(source: str, j: int, end: int) -> bool:
     return j + 1 == end or source[j + 1] == SPACE
 
 
+def _has_continuation(source: str, lines: list[Line], li: int, run_end: int) -> bool:
+    """3.8.4 step 7: a line of the value run that is not blank. Blank lines alone are not one."""
+    return any(not _is_blank(source, lines[k]) for k in range(li + 1, run_end))
+
+
 def _value_run_end(source: str, lines: list[Line], li: int, indent: int) -> int:
     """The value run of 3.8.4 step 7: every following line that is blank or indented more than
     the key line. **Those lines are never scanned again** -- without that, a multi-line quoted
@@ -123,13 +128,90 @@ def _value_run_end(source: str, lines: list[Line], li: int, indent: int) -> int:
     return k
 
 
+def _drop_carriage_return_regions(source: str, lines: list[Line], spans: list[Span]) -> list[Span]:
+    """3.8.4's carriage-return region: a line containing a U+000D yields no spans, and neither does
+    any later line up to the first one that is non-empty, does not begin with U+0020 and contains
+    none. It removes spans and never adds one."""
+    declined: list[bool] = []
+    in_region = False
+    for line in lines:
+        if _has_cr(source, line):
+            in_region = True
+        elif line.end > line.start and source[line.start] != " ":
+            in_region = False
+        declined.append(in_region)
+    if not any(declined):
+        return spans
+    kept: list[Span] = []
+    li = 0
+    for span in spans:
+        while li + 1 < len(lines) and span.start >= lines[li + 1].start:
+            li += 1
+        if not declined[li]:
+            kept.append(span)
+    return kept
+
+
 def yaml_spans(source: str, keys: frozenset[str]) -> list[Span]:
     lines = split_lines(source)
     spans: list[Span] = []
     li = 0
     while li < len(lines):
         li = _scan_line(source, lines, li, keys, spans)
-    return spans
+    return _drop_carriage_return_regions(source, lines, spans)
+
+
+def _closing_quote(source: str, line: Line, q: int) -> int:
+    """3.8.4 step 5: the index of the quote that closes the one at `q`, or -1. In a double-quoted
+    scalar a U+005C and the code point after it never close the quote, which decodes nothing: no
+    YAML escape ends in anything that would be a closing quote. A quote not closed on the line
+    returns -1."""
+    quote = source[q]
+    j = q + 1
+    while j < line.end:
+        c = source[j]
+        if quote == '"' and c == "\\":
+            j += 2
+            continue
+        if c != quote:
+            j += 1
+            continue
+        if quote == "'" and j + 1 < line.end and source[j + 1] == "'":
+            j += 2
+            continue
+        return j
+    return -1
+
+
+def _document_run_end(source: str, lines: list[Line], li: int) -> int:
+    """3.8.4 step 3: the next line that begins in column 0 with a document marker."""
+    k = li + 1
+    while k < len(lines):
+        if _is_document_marker(source, lines[k].start, lines[k].end):
+            break
+        k += 1
+    return k
+
+
+def _own_line_run_end(source: str, lines: list[Line], li: int, indent: int) -> int:
+    """3.8.4 step 5's own-line node: everything up to the first later line that is non-empty and
+    does not begin with U+0020, because the scan does not track the key above."""
+    if indent == 0:
+        return _document_run_end(source, lines, li)
+    k = li + 1
+    while k < len(lines):
+        nxt = lines[k]
+        if nxt.end > nxt.start and source[nxt.start] != SPACE:
+            break
+        k += 1
+    return k
+
+
+def _is_node_marker(source: str, j: int, end: int) -> bool:
+    """3.8.4 step 4: `-`, `?` or `:` followed by U+0020 or the line end."""
+    if source[j] not in ("-", "?", ":"):
+        return False
+    return j + 1 == end or source[j + 1] == SPACE
 
 
 def _scan_line(
@@ -139,44 +221,78 @@ def _scan_line(
     line = lines[li]
     skip_line = li + 1
 
-    # step 1 -- blank, or a tab anywhere, which makes indentation undecidable.
+    # step 1 -- blank. A tab makes indentation undecidable, so the line and whatever it absorbs
+    # yield no spans, but steps 2 to 7 still decide what it absorbs.
     start = _first_non_space(source, line)
-    if start == line.end or _has_tab(source, line):
+    if start == line.end:
         return skip_line
+    is_quiet = _has_tab(source, line)
     indent = start - line.start
 
-    # steps 2 and 3 -- comment, directive, document marker.
+    # steps 2 and 3 -- comment, directive, document marker. A marker with a node after it absorbs
+    # the document.
     if source[start] in ("#", "%"):
         return skip_line
     if _is_document_marker(source, start, line.end):
-        return skip_line
+        p = start + 3
+        while p < line.end and source[p] == SPACE:
+            p += 1
+        if p >= line.end or source[p] == "#":
+            return skip_line
+        return _document_run_end(source, lines, li) if indent == 0 else skip_line
 
-    # step 4 -- block sequence entries are consumed, not skipped; `- - key: v` nests.
+    # step 4 -- node markers are consumed, not skipped; `- - key: v` nests.
     i = start
-    while i < line.end and _is_sequence_dash(source, i, line.end):
+    while i < line.end and _is_node_marker(source, i, line.end):
         i += 2
         while i < line.end and source[i] == SPACE:
             i += 1
-    if i >= line.end:
+    if i >= line.end or source[i] == "#":
         return skip_line
+    has_marker = i > start
 
     # step 5 -- find the key. A colon NOT followed by U+0020 or the line end is an ordinary key
     # character, so `a:b: v` has the key `a:b`; stating that is what keeps five scanners agreeing.
     key_start = i
+    first = source[i]
     colon = -1
-    for j in range(i, line.end):
-        if source[j] in ('"', "'", "{", "[", "&", "*", "!", "#"):
-            return skip_line
-        if _is_indicator_colon(source, j, line.end):
-            colon = j
-            break
+    key_end = -1
+    is_declined = False
+    is_open_quote = False
+    if first in ('"', "'"):
+        close = _closing_quote(source, line, i)
+        if close < 0:
+            is_open_quote = True
+        else:
+            p = close + 1
+            while p < line.end and source[p] == SPACE:
+                p += 1
+            if p < line.end and _is_indicator_colon(source, p, line.end):
+                colon = p
+                key_end = close + 1
+                is_declined = True
+    elif first not in ("{", "[", "&", "*", "!"):
+        for j in range(i, line.end):
+            c = source[j]
+            if c == "#" and source[j - 1] == SPACE:
+                break
+            if _is_indicator_colon(source, j, line.end):
+                colon = j
+                break
+            if c in ('"', "'", "{", "[", "&", "*", "!", "#"):
+                is_declined = True
+        if colon >= 0:
+            key_end = colon
+            while key_end > key_start and source[key_end - 1] == SPACE:
+                key_end -= 1
+
+    # No key: the line is a node of its own, and it absorbs its value run. One that opens a flow
+    # collection, a block scalar or a quote and sits on a line of its own absorbs the region.
     if colon < 0:
-        return skip_line
-    key_end = colon
-    while key_end > key_start and source[key_end - 1] == SPACE:
-        key_end -= 1
-    if key_end <= key_start:
-        return skip_line
+        is_own_line = not has_marker and (is_open_quote or first in ("{", "[", "|", ">"))
+        if is_own_line:
+            return _own_line_run_end(source, lines, li, indent)
+        return _value_run_end(source, lines, li, indent)
 
     # step 6 -- an empty value means a nested node, whose lines ARE scanned on their own.
     v = colon + 1
@@ -185,31 +301,38 @@ def _scan_line(
     if v >= line.end:
         return skip_line
 
-    # step 7 -- the line carries an inline value, so its continuation lines belong to that value.
+    # step 7 -- the line carries an inline value, so its continuation lines belong to that value. A
+    # declined key's value absorbs them only if it can continue on the next line.
+    value = source[v]
+    if is_declined:
+        is_open = value in ("|", ">", "{", "[", "&", "!")
+        if value in ('"', "'"):
+            close = _closing_quote(source, line, v)
+            p = close + 1
+            while p < line.end and source[p] == SPACE:
+                p += 1
+            is_open = close < 0 or (p < line.end and source[p] != "#")
+        return _value_run_end(source, lines, li, indent) if is_open else skip_line
     nxt = _value_run_end(source, lines, li, indent)
 
     # step 8 -- the key must be listed. Checked before the value's form, so an unlisted key costs
     # nothing to decline: this is what makes `run:`, `if:` and `image:` unreachable.
     if source[key_start:key_end] not in keys:
         return nxt
-
-    # step 9 -- a lone U+000D declines the line. After step 8 and before the form switch: the value
-    # run is still consumed, so the continuation lines are not rescanned as mapping lines.
-    if _has_cr(source, line):
+    if is_quiet:
         return nxt
 
-    # the scalar form.
-    value = source[v]
+    # step 9 -- the scalar form.
     if value in ("#", "&", "*", "!", "{", "["):
         return nxt
     if value in ("|", ">"):
         _block_scalar(source, lines, li, nxt, indent, v, spans)
         return nxt
     if value in ('"', "'"):
-        if nxt == li + 1:
+        if not _has_continuation(source, lines, li, nxt):
             _quoted_scalar(source, line, v, spans)
         return nxt
-    if nxt == li + 1:
+    if not _has_continuation(source, lines, li, nxt):
         _plain_scalar(source, line, v, spans)
     return nxt
 
