@@ -23,7 +23,7 @@ from polytypo._modes.spans import (
 )
 
 
-def _run_rules_over_spans(
+def run_rules_over_spans(
     cp: list[int], plan: list[str], locale_data: dict[str, Any], ctx: RuleContext
 ) -> list[int]:
     """The same sequence as `run_rules`, with the two boundary filters of modes.md 3.4
@@ -52,7 +52,7 @@ def _replacements_of_unit(
     if not normalized:
         return []
     concatenated = concatenate_spans(source, normalized)
-    transformed = _run_rules_over_spans(concatenated, plan, locale_data, ctx)
+    transformed = run_rules_over_spans(concatenated, plan, locale_data, ctx)
     pieces = split_on_marker(transformed, len(normalized))
     return [(span, from_codepoints(piece)) for span, piece in zip(normalized, pieces, strict=True)]
 

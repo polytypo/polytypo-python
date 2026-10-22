@@ -121,6 +121,28 @@ scalar containing `''` among them, which is how an apostrophe is written inside 
 The block is also processed separately from the body, which shows up in exactly one place: an
 unbalanced quotation mark in `title` cannot pair with a mark in your first paragraph.
 
+`protect` is the option for text that has holes no mode knows about: a template literal with
+`${…}`, an ICU message, a Django or Handlebars template. It is `text` mode only. You pass the
+ranges to leave alone, as `(start, end)` pairs of **code-point** offsets into the string you pass,
+half-open, ascending and non-overlapping; touching ranges are one. The rules see each range as
+opaque content, so the text around it keeps its context, and the range itself comes back byte for
+byte:
+
+```python
+from polytypo.text import transform
+
+transform("${x} - Rules", locale="en-US", protect=[(0, 4)])  # '${x}—Rules'
+transform("${x} - Rules", locale="en-GB", protect=[(0, 4)])  # '${x} – Rules'
+```
+
+`None` and `[]` are the same as leaving it out. A malformed range, one past the end of the input
+(counted in code points, not UTF-16 units or bytes), or any non-empty `protect` in another mode
+raises `POLYTYPO_INVALID_OPTION`. A text with `protect` converts less than the same characters
+without it, never more: a conversion that would add code points at the edge of a hole is not made.
+The offsets refer to the input as passed, so to run the output through `transform` again you move
+the ranges yourself. `analyze()` takes the same option, with the same validation. Full contract:
+`spec/rules/modes.md` 3.9.
+
 `analyze()` runs the same pipeline and reports what it would do instead of doing it — one record
 per edit, each with the rule that made it and code-point offsets into the input you passed (into
 the **document**, in `html`, `markdown` and `yaml` mode, not into a span):

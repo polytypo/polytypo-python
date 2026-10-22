@@ -14,6 +14,12 @@ from polytypo._engine.codepoints import from_codepoints, to_codepoints
 from polytypo._engine.narrow_target import resolve_narrow_target
 from polytypo._engine.origin import Change
 from polytypo._engine.pipeline import prepare, run_rules, run_rules_recording
+from polytypo._engine.protect import (
+    analyze_protected,
+    assert_no_protect,
+    resolve_protect,
+    run_protected,
+)
 from polytypo._engine.registry import RuleContext
 from polytypo._engine.span_runner import (
     analyze_over_spans,
@@ -31,6 +37,7 @@ def run_text_pipeline(
     locale: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> str:
     narrow_target = resolve_narrow_target(narrow_nbsp)
     resolved_locale, locale_data, plan = prepare(locale, rules)
@@ -41,6 +48,9 @@ def run_text_pipeline(
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
+    holes = resolve_protect(protect, len(cp))
+    if holes:
+        return run_protected(input_text, holes, plan, locale_data, ctx)
     return from_codepoints(run_rules(cp, plan, locale_data, ctx))
 
 
@@ -50,6 +60,7 @@ def run_html_pipeline(
     locale: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> str:
     from polytypo._modes.html import html_spans
 
@@ -61,6 +72,7 @@ def run_html_pipeline(
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
+    assert_no_protect(protect)
     spans = normalize_spans(html_spans(input_text))
     return run_over_spans(input_text, spans, plan, locale_data, ctx)
 
@@ -72,6 +84,7 @@ def run_markdown_pipeline(
     dialect: str | None,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
     frontmatter_keys: object = None,
 ) -> str:
     from polytypo._modes.markdown import resolve_dialect
@@ -80,6 +93,7 @@ def run_markdown_pipeline(
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolve_dialect(dialect)
     resolved_keys = resolve_frontmatter_keys(frontmatter_keys)
+    assert_no_protect(protect)
     ctx: RuleContext = {
         "mode": "markdown",
         "dialect": dialect,
@@ -111,6 +125,7 @@ def run_yaml_pipeline(
     keys: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> str:
     """`yaml` mode only, and the only mode pipeline with **no parser dependency at all** -- span
     selection is the specified scan of modes.md 3.8, not a library. There is likewise no
@@ -122,6 +137,7 @@ def run_yaml_pipeline(
     narrow_target = resolve_narrow_target(narrow_nbsp)
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolved_keys = resolve_yaml_keys(keys)
+    assert_no_protect(protect)
     ctx: RuleContext = {
         "mode": "yaml",
         "dialect": None,
@@ -138,6 +154,7 @@ def analyze_text_pipeline(
     locale: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> list[Change]:
     """analyze.md section 1: the same pipeline as `run_text_pipeline`, reporting instead of
     applying."""
@@ -150,6 +167,9 @@ def analyze_text_pipeline(
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
+    holes = resolve_protect(protect, len(cp))
+    if holes:
+        return analyze_protected(input_text, holes, plan, locale_data, ctx)
     return run_rules_recording(cp, plan, locale_data, ctx, list(range(len(cp))), len(cp))
 
 
@@ -159,6 +179,7 @@ def analyze_html_pipeline(
     locale: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> list[Change]:
     """analyze.md section 1, `html` mode: offsets are into the document, not into a span
     (analyze.md section 6)."""
@@ -172,6 +193,7 @@ def analyze_html_pipeline(
         "locale": resolved_locale,
         "narrow_target": narrow_target,
     }
+    assert_no_protect(protect)
     spans = normalize_spans(html_spans(input_text))
     return analyze_over_spans(input_text, spans, plan, locale_data, ctx)
 
@@ -183,6 +205,7 @@ def analyze_markdown_pipeline(
     dialect: str | None,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
     frontmatter_keys: object = None,
 ) -> list[Change]:
     """analyze.md section 1, `markdown` mode. Dialect validation happens here exactly as it does
@@ -194,6 +217,7 @@ def analyze_markdown_pipeline(
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolve_dialect(dialect)
     resolved_keys = resolve_frontmatter_keys(frontmatter_keys)
+    assert_no_protect(protect)
     ctx: RuleContext = {
         "mode": "markdown",
         "dialect": dialect,
@@ -211,6 +235,7 @@ def analyze_yaml_pipeline(
     keys: object,
     rules: dict[str, bool] | None,
     narrow_nbsp: str | None = None,
+    protect: object = None,
 ) -> list[Change]:
     """analyze.md section 1, `yaml` mode: offsets are into the document, not into a span
     (analyze.md section 6)."""
@@ -219,6 +244,7 @@ def analyze_yaml_pipeline(
     narrow_target = resolve_narrow_target(narrow_nbsp)
     resolved_locale, locale_data, plan = prepare(locale, rules)
     resolved_keys = resolve_yaml_keys(keys)
+    assert_no_protect(protect)
     ctx: RuleContext = {
         "mode": "yaml",
         "dialect": None,

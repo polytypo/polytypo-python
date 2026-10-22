@@ -9,6 +9,7 @@ needs no parser at all (modes.md 3.8.1), so it is the lightest of the four."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from importlib import metadata as _metadata
 
 from polytypo._engine.mode_pipelines import (
@@ -56,6 +57,7 @@ def transform(
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
     frontmatter_keys: object = None,
+    protect: Sequence[Sequence[int]] | None = None,
 ) -> str:
     """`narrow_nbsp="nbsp"` makes the engine emit U+00A0 everywhere it would emit U+202F
     (nbsp.md 3.1a). It moves the rule's target rather than post-processing the output, so the
@@ -64,15 +66,31 @@ def transform(
 
     `keys` is required when `mode="yaml"` and ignored otherwise (modes.md 3.8.2): YAML is a data
     format with islands of prose in it, so the caller names the mapping keys whose values are
-    prose and the library never guesses. An empty sequence is legal and processes nothing."""
+    prose and the library never guesses. An empty sequence is legal and processes nothing.
+
+    `protect` (`text` mode only, modes.md 3.9): a sequence of `(start, end)` code-point ranges of
+    `input`, half-open, ascending and non-overlapping, that are never edited and that the rules
+    see as opaque content. `None` and `[]` are the same call; a non-empty `protect` in any other
+    mode raises POLYTYPO_INVALID_OPTION, as does a malformed one. It is checked last, after
+    `dialect` and `keys`. Offsets are into `input` as passed, so a caller that runs the output
+    through `transform` again has to move the ranges (modes.md 3.9.5)."""
     resolved_mode = _resolve_mode(mode)
     if resolved_mode == "text":
-        return run_text_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+        return run_text_pipeline(
+            input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp, protect=protect
+        )
     if resolved_mode == "html":
-        return run_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+        return run_html_pipeline(
+            input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp, protect=protect
+        )
     if resolved_mode == "yaml":
         return run_yaml_pipeline(
-            input, locale=locale, keys=keys, rules=rules, narrow_nbsp=narrow_nbsp
+            input,
+            locale=locale,
+            keys=keys,
+            rules=rules,
+            narrow_nbsp=narrow_nbsp,
+            protect=protect,
         )
     return run_markdown_pipeline(
         input,
@@ -80,6 +98,7 @@ def transform(
         dialect=dialect,
         rules=rules,
         narrow_nbsp=narrow_nbsp,
+        protect=protect,
         frontmatter_keys=frontmatter_keys,
     )
 
@@ -94,6 +113,7 @@ def analyze(
     rules: dict[str, bool] | None = None,
     narrow_nbsp: str | None = None,
     frontmatter_keys: object = None,
+    protect: Sequence[Sequence[int]] | None = None,
 ) -> list[Change]:
     """The same pipeline as `transform`, reporting what it would do instead of doing it
     (spec/rules/analyze.md). Offsets are code-point offsets into `input` in every mode.
@@ -105,12 +125,21 @@ def analyze(
     for the text (analyze.md sections 4 and 5)."""
     resolved_mode = _resolve_mode(mode)
     if resolved_mode == "text":
-        return analyze_text_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+        return analyze_text_pipeline(
+            input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp, protect=protect
+        )
     if resolved_mode == "html":
-        return analyze_html_pipeline(input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp)
+        return analyze_html_pipeline(
+            input, locale=locale, rules=rules, narrow_nbsp=narrow_nbsp, protect=protect
+        )
     if resolved_mode == "yaml":
         return analyze_yaml_pipeline(
-            input, locale=locale, keys=keys, rules=rules, narrow_nbsp=narrow_nbsp
+            input,
+            locale=locale,
+            keys=keys,
+            rules=rules,
+            narrow_nbsp=narrow_nbsp,
+            protect=protect,
         )
     return analyze_markdown_pipeline(
         input,
@@ -118,5 +147,6 @@ def analyze(
         dialect=dialect,
         rules=rules,
         narrow_nbsp=narrow_nbsp,
+        protect=protect,
         frontmatter_keys=frontmatter_keys,
     )

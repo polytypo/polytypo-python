@@ -45,6 +45,15 @@ def _case_id(file_name: str, case: dict[str, Any]) -> str:
     return f"{file_name}::{case['id']}"
 
 
+def _protect_argument(value: Any) -> Any:
+    """The fixtures' `{start, end}` mappings in this runtime's idiom, a `(start, end)` pair. A
+    value that is not a list of such mappings (the "not a list" fixture) is passed through as it
+    is, because refusing it is what the case asserts."""
+    if not isinstance(value, list):
+        return value
+    return [(r["start"], r["end"]) if isinstance(r, dict) else r for r in value]
+
+
 def _iter_cases():
     for file in _discover_fixture_files():
         for case in file["cases"]:
@@ -71,6 +80,9 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
     if case.get("frontmatterKeys") is not None:
         kwargs["frontmatter_keys"] = case["frontmatterKeys"]
 
+    if "protect" in case:
+        kwargs["protect"] = _protect_argument(case["protect"])
+
     if "throws" in case:
         with pytest.raises(PolytypoError) as excinfo:
             polytypo.transform(case["in"], **kwargs)
@@ -85,6 +97,10 @@ def test_fixture_case(file_name: str, locale: str, case: dict[str, Any]) -> None
     # case's OWN options: a case with `narrowNbsp` or `keys` is a fixed point under those and not
     # under the defaults, so passing `**kwargs` here is contract, not convenience -- and for
     # `keys` the re-run would not even run without it, since the option has no default.
+    # `protect` is the exception: moving the ranges is the caller's job (modes.md 3.9.5), so the
+    # re-run carries `protectOut`, the ranges as they sit in `out`.
+    if "protectOut" in case:
+        kwargs["protect"] = _protect_argument(case["protectOut"])
     twice = polytypo.transform(expected, **kwargs)
     assert _escape_non_ascii(twice) == _escape_non_ascii(expected)
 

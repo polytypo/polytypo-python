@@ -38,6 +38,18 @@ def origin_at(origin: list[int], index: int, input_length: int) -> int:
     return input_length
 
 
+def end_of(origin: list[int], edit: Edit, input_length: int) -> int:
+    """Where a change ends in the input: one past the input offset of the last replaced code point
+    that has an origin. Scanning forward from ``edit.end`` instead, as ``origin_at`` does for a
+    start, would carry the end across a skipped region or a protected run that follows -- the
+    boundary marker has no origin -- and the reported range would contain text the rules never
+    saw (analyze.md section 2)."""
+    for i in range(edit.end - 1, edit.start - 1, -1):
+        if origin[i] != NO_ORIGIN:
+            return origin[i] + 1
+    return origin_at(origin, edit.end, input_length)
+
+
 def apply_edits_to_origin(origin: list[int], edits: list[Edit]) -> list[int]:
     """The origin map for the array ``apply_edits`` is about to produce. A replacement of equal
     length keeps its origins position by position, which is what makes a conversion
@@ -69,7 +81,7 @@ def record_changes(
         Change(
             rule_id=rule_id,
             start=origin_at(origin, edit.start, input_length),
-            end=origin_at(origin, edit.end, input_length),
+            end=end_of(origin, edit, input_length),
             before=from_codepoints(cp[edit.start : edit.end]),
             after=from_codepoints(edit.replacement),
         )
