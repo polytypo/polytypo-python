@@ -25,6 +25,9 @@ class Span:
 
     start: int
     end: int
+    #: The span begins at the U+0020 or U+0009 that ends a bare web address (modes.md 3.7.3,
+    #: spec 1.17.2): an edit starting at its first code point must keep a U+0020 there.
+    url_tail: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +59,7 @@ def normalize_spans(spans: list[Span]) -> list[Span]:
                 f"({span.start}, {span.end})",
             )
         if span.start == last.end:
-            out[-1] = Span(last.start, span.end)
+            out[-1] = Span(last.start, span.end, last.url_tail)
             continue
         out.append(span)
     return out
@@ -89,14 +92,52 @@ def span_ranges_of(cp: list[int]) -> list[SpanRange]:
     return ranges
 
 
-def _span_containing(ranges: list[SpanRange], p: int) -> SpanRange | None:
-    for r in ranges:
+def _span_containing(ranges: list[SpanRange], p: int) -> int | None:
+    for index, r in enumerate(ranges):
         if r.first <= p <= r.last + 1:
-            return r
+            return index
     return None
 
 
-def filter_boundary_edits(cp: list[int], edits: list[Edit], ranges: list[SpanRange]) -> list[Edit]:
+_DELIMITERS = frozenset({0x2A, 0x5F, 0x7E})
+
+_MARKDOWN_WHITESPACE = frozenset(
+    {0x09, 0x0A, 0x0C, 0x0D, 0x20, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000}
+)
+
+
+def _is_markdown_whitespace(c: int | None) -> bool:
+    return c is not None and c in _MARKDOWN_WHITESPACE
+
+
+def _at(cp: list[int], i: int) -> int | None:
+    return cp[i] if 0 <= i < len(cp) else None
+
+
+def _changes_delimiter_flank(cp: list[int], p: int, q: int, w: list[int]) -> bool:
+    """modes.md 3.4 delimiter-neighbour rule (``markdown`` only, spec 1.17.2): beside U+002A,
+    U+005F or U+007E, exactly one of the code point before and after the edit is whitespace."""
+    r = len(w)
+    if _at(cp, p - 1) in _DELIMITERS:
+        old = _at(cp, p)
+        new = w[0] if r > 0 else _at(cp, q + 1)
+        if _is_markdown_whitespace(old) != _is_markdown_whitespace(new):
+            return True
+    if _at(cp, q + 1) in _DELIMITERS:
+        old = _at(cp, q)
+        new = w[r - 1] if r > 0 else _at(cp, p - 1)
+        if _is_markdown_whitespace(old) != _is_markdown_whitespace(new):
+            return True
+    return False
+
+
+def filter_boundary_edits(
+    cp: list[int],
+    edits: list[Edit],
+    ranges: list[SpanRange],
+    delimiter_neighbours: bool = False,
+    guarded: list[bool] | None = None,
+) -> list[Edit]:
     """modes.md 3.4, two safety nets, both pure functions of (p, q, r, s0, s1):
 
     1. No edit may contain a marker -- one that does is a bug, discarded rather than
@@ -121,7 +162,19 @@ def filter_boundary_edits(cp: list[int], edits: list[Edit], ranges: list[SpanRan
         q = edit.end - 1
         d = edit.end - edit.start
         r = len(edit.replacement)
-        span = _span_containing(ranges, p)
+        if delimiter_neighbours and _changes_delimiter_flank(cp, p, q, edit.replacement):
+            continue
+        span_index = _span_containing(ranges, p)
+        span = None if span_index is None else ranges[span_index]
+        if (
+            span is not None
+            and span_index is not None
+            and guarded is not None
+            and p == span.first
+            and guarded[span_index]
+            and (r == 0 or edit.replacement[0] != SPACE)
+        ):
+            continue
         if span is not None and (p == span.first or q == span.last):
             if r > d:
                 continue

@@ -19,6 +19,7 @@ tree-sitter-markdown via language injection; we do the same slice-and-reparse by
 
 from __future__ import annotations
 
+import unicodedata
 from bisect import bisect_right
 from dataclasses import dataclass, field
 
@@ -28,7 +29,7 @@ from tree_sitter import Language, Node, Parser
 from polytypo._modes.html import SKIPPED_ELEMENTS as _HTML_SKIPPED_ELEMENTS
 from polytypo._modes.html import html_spans
 from polytypo._modes.parse_error import wrap_parser_errors
-from polytypo._modes.spans import Span
+from polytypo._modes.spans import Span, normalize_spans
 from polytypo._modes.yaml import split_lines
 from polytypo.errors import POLYTYPO_INVALID_DIALECT, PolytypoError
 
@@ -98,11 +99,69 @@ _LINK_FAMILY_TYPES = frozenset(
 _LABEL_FIELD_TYPES = frozenset({"link_text", "image_description"})
 
 
+@dataclass(frozen=True, slots=True)
+class _Labels:
+    """The labels a document defines, normalised as CommonMark 4.7 matches them (modes.md 3.7.3,
+    spec 1.17.2): ``references`` for `[label]: destination`, ``footnotes`` for `[^label]:`."""
+
+    references: frozenset[str] = frozenset()
+    footnotes: frozenset[str] = frozenset()
+
+
+_NO_LABELS = _Labels()
+
+
+def _normalize_label(label: str) -> str:
+    return " ".join(label.split()).casefold()
+
+
+def _footnote_label_at(text: str) -> str | None:
+    """The label of a footnote definition opening `text` -- ``[^label]:`` with no whitespace or
+    bracket in the label -- or None."""
+    if not text.startswith("[^"):
+        return None
+    close = text.find("]", 2)
+    if close < 3 or text[close + 1 : close + 2] != ":":
+        return None
+    label = text[2:close]
+    if any(ch.isspace() or ch == "[" for ch in label):
+        return None
+    return label
+
+
+def _collect_labels(root: Node, source_bytes: bytes) -> _Labels:
+    references: set[str] = set()
+    footnotes: set[str] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "link_reference_definition":
+            label = next((c for c in node.children if c.type == "link_label"), None)
+            if label is not None:
+                text = source_bytes[label.start_byte + 1 : label.end_byte - 1].decode("utf-8")
+                if text.startswith("^"):
+                    footnotes.add(_normalize_label(text[1:]))
+                else:
+                    references.add(_normalize_label(text))
+            continue
+        if node.type == "paragraph":
+            text = source_bytes[node.start_byte : node.end_byte].decode("utf-8")
+            footnote = _footnote_label_at(text)
+            if footnote is not None:
+                footnotes.add(_normalize_label(footnote))
+        stack.extend(node.children)
+    return _Labels(frozenset(references), frozenset(footnotes))
+
+
 @dataclass
 class _WalkState:
     source: str
     offsets: _ByteOffsets
     base_byte_offset: int
+    labels: _Labels
+    slice_bytes: bytes
+    #: The slice is a whole paragraph, so a footnote definition label can start it.
+    is_block_start: bool = False
     spans: list[Span] = field(default_factory=list)
     html_stack: list[str] = field(default_factory=list)
 
@@ -153,25 +212,93 @@ def _handle_html_tag(state: _WalkState, node: Node, slice_text: str) -> None:
         state.html_stack.append(name)
 
 
-def _walk_children_with_gaps(state: _WalkState, node: Node, slice_text: str) -> None:
+def _walk_children_with_gaps(
+    state: _WalkState, node: Node, slice_text: str, literal_delimiters: bool = False
+) -> None:
     cursor = node.start_byte
     for child in node.children:
         if child.start_byte > cursor:
             _emit(state, cursor, child.start_byte)
-        _walk(state, child, slice_text)
+        if literal_delimiters and child.type == "emphasis_delimiter":
+            _emit(state, child.start_byte, child.end_byte)
+        else:
+            _walk(state, child, slice_text)
         cursor = child.end_byte
     if node.end_byte > cursor:
         _emit(state, cursor, node.end_byte)
 
 
+_RESOURCE_OR_LABEL = frozenset({"link_label", "link_destination", "("})
+
+
+def _is_reference_label(state: _WalkState, node: Node) -> bool:
+    """modes.md 3.7.3 (spec 1.17.2): the text of a shortcut or collapsed reference is the label it
+    is matched by, and so is a footnote call's or definition's label. A bracketed run no
+    definition answers to, and a full reference, are prose. The parser forms a shortcut or
+    collapsed run from any brackets, so the definitions are consulted here; an image has no
+    separate node for the two, and is told apart by having no label or resource child."""
+    if node.type in ("inline_link", "full_reference_link"):
+        return False
+    if any(child.type in _RESOURCE_OR_LABEL for child in node.children):
+        return False
+    label = next((child for child in node.children if child.type in _LABEL_FIELD_TYPES), None)
+    if label is None:
+        return False
+    text = state.slice_bytes[label.start_byte : label.end_byte].decode("utf-8")
+    if text.startswith("^"):
+        if state.is_block_start and node.start_byte == 0:
+            following = state.slice_bytes[node.end_byte : node.end_byte + 1]
+            if following == b":" and _footnote_label_at("[" + text + "]:") is not None:
+                return True
+        return _normalize_label(text[1:]) in state.labels.footnotes
+    return _normalize_label(text) in state.labels.references
+
+
+def _is_punctuation(ch: str) -> bool:
+    return unicodedata.category(ch)[0] in "PS"
+
+
+def _is_flanking(state: _WalkState, delimiter: Node, closing: bool) -> bool:
+    """CommonMark 6.2's left- (opening) or right-flanking (closing) test for the delimiter run
+    `delimiter`. The start and end of the slice count as whitespace."""
+    data = state.slice_bytes
+    before = data[max(0, delimiter.start_byte - 4) : delimiter.start_byte]
+    after = data[delimiter.end_byte : delimiter.end_byte + 4]
+    prev = before.decode("utf-8", errors="ignore")[-1:] or " "
+    nxt = after.decode("utf-8", errors="ignore")[:1] or " "
+    inner, outer = (prev, nxt) if closing else (nxt, prev)
+    if inner.isspace():
+        return False
+    return not _is_punctuation(inner) or outer.isspace() or _is_punctuation(outer)
+
+
+def _is_valid_strikethrough(state: _WalkState, node: Node) -> bool:
+    """tree-sitter-markdown pairs `~` runs without CommonMark's flanking test (measured:
+    `~25 et «~25` closes on a tilde that follows a guillemet and precedes a digit, which no GFM
+    parser pairs). Such a pair is literal text, the same as the unpaired tildes the other parsers
+    leave, and is walked as text so the delimiter-neighbour rule (modes.md 3.4) sees the same
+    document they do."""
+    delimiters = [child for child in node.children if child.type == "emphasis_delimiter"]
+    if len(delimiters) < 2:
+        return True
+    return _is_flanking(state, delimiters[0], closing=False) and _is_flanking(
+        state, delimiters[-1], closing=True
+    )
+
+
 def _walk(state: _WalkState, node: Node, slice_text: str) -> None:
     node_type = node.type
+    if node_type == "strikethrough" and not _is_valid_strikethrough(state, node):
+        _walk_children_with_gaps(state, node, slice_text, literal_delimiters=True)
+        return
     if node_type in _INLINE_SKIP_TYPES:
         return
     if node_type == "html_tag":
         _handle_html_tag(state, node, slice_text)
         return
     if node_type in _LINK_FAMILY_TYPES:
+        if _is_reference_label(state, node):
+            return
         for child in node.children:
             if child.type in _LABEL_FIELD_TYPES:
                 _walk_children_with_gaps(state, child, slice_text)
@@ -180,12 +307,25 @@ def _walk(state: _WalkState, node: Node, slice_text: str) -> None:
 
 
 def _inline_spans(
-    source: str, offsets: _ByteOffsets, source_bytes: bytes, start_byte: int, end_byte: int
+    source: str,
+    offsets: _ByteOffsets,
+    source_bytes: bytes,
+    start_byte: int,
+    end_byte: int,
+    labels: _Labels,
+    is_block_start: bool,
 ) -> list[Span]:
     parser = Parser(_INLINE_LANGUAGE)
     slice_bytes = source_bytes[start_byte:end_byte]
     tree = parser.parse(slice_bytes)
-    state = _WalkState(source=source, offsets=offsets, base_byte_offset=start_byte)
+    state = _WalkState(
+        source=source,
+        offsets=offsets,
+        base_byte_offset=start_byte,
+        labels=labels,
+        slice_bytes=slice_bytes,
+        is_block_start=is_block_start,
+    )
     slice_text = slice_bytes.decode("utf-8")
     _walk_children_with_gaps(state, tree.root_node, slice_text)
     return state.spans
@@ -213,7 +353,12 @@ _BLOCK_SKIP_TYPES = frozenset(
 
 
 def _walk_block(
-    spans: list[Span], source: str, offsets: _ByteOffsets, source_bytes: bytes, node: Node
+    spans: list[Span],
+    source: str,
+    offsets: _ByteOffsets,
+    source_bytes: bytes,
+    node: Node,
+    labels: _Labels,
 ) -> None:
     node_type = node.type
     if node_type in _BLOCK_SKIP_TYPES:
@@ -227,17 +372,25 @@ def _walk_block(
             spans.append(Span(char_offset + span.start, char_offset + span.end))
         return
     if node_type == "inline":
-        spans.extend(_inline_spans(source, offsets, source_bytes, node.start_byte, node.end_byte))
+        spans.extend(
+            _inline_spans(
+                source, offsets, source_bytes, node.start_byte, node.end_byte, labels, True
+            )
+        )
         return
     if node_type == "pipe_table_cell":
         # GFM: table pipes and the delimiter row are structural (modes.md 3.7.3); cell content
         # is ordinary prose and may itself contain inline constructs.
-        spans.extend(_inline_spans(source, offsets, source_bytes, node.start_byte, node.end_byte))
+        spans.extend(
+            _inline_spans(
+                source, offsets, source_bytes, node.start_byte, node.end_byte, labels, False
+            )
+        )
         return
     if node_type == "pipe_table_delimiter_row":
         return
     for child in node.children:
-        _walk_block(spans, source, offsets, source_bytes, child)
+        _walk_block(spans, source, offsets, source_bytes, child, labels)
 
 
 YAML_DELIMITER = "---"
@@ -431,8 +584,56 @@ def _parse(source_bytes: bytes) -> Node:
 def _walked_spans(source: str) -> list[Span]:
     source_bytes = source.encode("utf-8")
     spans: list[Span] = []
-    _walk_block(spans, source, _ByteOffsets(source), source_bytes, _parse(source_bytes))
+    root = _parse(source_bytes)
+    labels = _collect_labels(root, source_bytes)
+    _walk_block(spans, source, _ByteOffsets(source), source_bytes, root, labels)
     return spans
+
+
+_URL_PREFIXES = ("www.", "http://", "https://")
+_URL_TERMINATORS = frozenset(" \t\n\r<")
+_URL_TAIL_GUARD = frozenset(" \t")
+
+
+def _starts_url(source: str, i: int, end: int) -> bool:
+    """ASCII case-insensitive, with no test on the character before `i` (modes.md 3.7.3)."""
+    for prefix in _URL_PREFIXES:
+        stop = i + len(prefix)
+        if stop > end:
+            continue
+        if all(
+            (ord(c) | 0x20 if "A" <= c <= "Z" else ord(c)) == ord(want)
+            for c, want in zip(source[i:stop], prefix, strict=True)
+        ):
+            return True
+    return False
+
+
+def _trim_url_tails(source: str, spans: list[Span]) -> list[Span]:
+    """modes.md 3.7.3 (spec 1.17.2): the tail of a bare web address, found by scanning the source
+    of each maximal span rather than asking the parser, which this one does not do for GFM
+    autolink literals at all. The piece that follows an address ending at U+0020 or U+0009 is
+    marked, so an edit at its first code point cannot swallow the terminator."""
+    out: list[Span] = []
+    for span in spans:
+        from_ = span.start
+        i = span.start
+        guard = span.url_tail
+        while i < span.end:
+            if not _starts_url(source, i, span.end):
+                i += 1
+                continue
+            e = i
+            while e < span.end and source[e] not in _URL_TERMINATORS:
+                e += 1
+            if i > from_:
+                out.append(Span(from_, i, guard))
+            guard = e < span.end and source[e] in _URL_TAIL_GUARD
+            from_ = e
+            i = e
+        if from_ < span.end:
+            out.append(Span(from_, span.end, guard))
+    return out
 
 
 def markdown_spans(source: str, dialect: str | None) -> list[Span]:
@@ -467,7 +668,13 @@ def markdown_spans(source: str, dialect: str | None) -> list[Span]:
         spans = [Span(s.start - 1, s.end - 1) for s in _walked_spans("\n" + parser_input)]
     else:
         spans = []
-        _walk_block(spans, parser_input, _ByteOffsets(parser_input), source_bytes, root)
+        labels = _collect_labels(root, source_bytes)
+        _walk_block(spans, parser_input, _ByteOffsets(parser_input), source_bytes, root, labels)
+    spans = _trim_url_tails(parser_input, normalize_spans(spans))
     if block is None:
         return spans
-    return [Span(max(span.start, block.end), span.end) for span in spans if span.end > block.end]
+    return [
+        Span(max(span.start, block.end), span.end, span.url_tail)
+        for span in spans
+        if span.end > block.end
+    ]

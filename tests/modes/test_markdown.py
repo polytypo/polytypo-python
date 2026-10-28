@@ -92,3 +92,15 @@ def test_html_block_content_is_typeset_but_markup_is_not() -> None:
         '<div class="x">\n  Body "text" inside.\n</div>\n', locale="en-US", dialect="commonmark"
     )
     assert out == '<div class="x">\n  Body “text” inside.\n</div>\n'
+
+
+def test_tilde_pair_that_cannot_close_is_literal_text() -> None:
+    """tree-sitter-markdown pairs `~25 et «~` as strikethrough; no flanking-correct GFM parser
+    does, and the pair would split one span into three (modes.md 3.4, 3.7.3)."""
+    source = "Voir ~25 et « ~25 et «~25 enfin\n"
+    assert len(normalize_spans(markdown_spans(source, "commonmark"))) == 1
+
+
+def test_valid_strikethrough_still_delimits_its_content() -> None:
+    spans = markdown_spans("a ~~b~~ c\n", "commonmark")
+    assert [(s.start, s.end) for s in normalize_spans(spans)] == [(0, 2), (4, 5), (7, 9)]

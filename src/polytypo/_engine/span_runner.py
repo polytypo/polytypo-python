@@ -24,7 +24,11 @@ from polytypo._modes.spans import (
 
 
 def run_rules_over_spans(
-    cp: list[int], plan: list[str], locale_data: dict[str, Any], ctx: RuleContext
+    cp: list[int],
+    plan: list[str],
+    locale_data: dict[str, Any],
+    ctx: RuleContext,
+    guarded: list[bool] | None = None,
 ) -> list[int]:
     """The same sequence as `run_rules`, with the two boundary filters of modes.md 3.4
     interposed. Span extents are recomputed after every rule, because applying an edit shifts
@@ -33,7 +37,9 @@ def run_rules_over_spans(
     for rule_id in plan:
         rule_fn = get_rule(rule_id)
         edits = rule_fn(current, locale_data, ctx)
-        filtered = filter_boundary_edits(current, edits, span_ranges_of(current))
+        filtered = filter_boundary_edits(
+            current, edits, span_ranges_of(current), ctx["mode"] == "markdown", guarded
+        )
         if filtered:
             current = apply_edits(current, filtered, rule_id)
     return current
@@ -52,7 +58,9 @@ def _replacements_of_unit(
     if not normalized:
         return []
     concatenated = concatenate_spans(source, normalized)
-    transformed = run_rules_over_spans(concatenated, plan, locale_data, ctx)
+    transformed = run_rules_over_spans(
+        concatenated, plan, locale_data, ctx, [span.url_tail for span in normalized]
+    )
     pieces = split_on_marker(transformed, len(normalized))
     return [(span, from_codepoints(piece)) for span, piece in zip(normalized, pieces, strict=True)]
 
@@ -140,5 +148,11 @@ def analyze_over_spans(
         ctx,
         origin_of_spans(source, normalized),
         len(source),
-        lambda current, edits: filter_boundary_edits(current, edits, span_ranges_of(current)),
+        lambda current, edits: filter_boundary_edits(
+            current,
+            edits,
+            span_ranges_of(current),
+            ctx["mode"] == "markdown",
+            [span.url_tail for span in normalized],
+        ),
     )
