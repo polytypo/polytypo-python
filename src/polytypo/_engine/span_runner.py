@@ -38,7 +38,7 @@ def run_rules_over_spans(
         rule_fn = get_rule(rule_id)
         edits = rule_fn(current, locale_data, ctx)
         filtered = filter_boundary_edits(
-            current, edits, span_ranges_of(current), ctx["mode"] == "markdown", guarded
+            current, edits, span_ranges_of(current), ctx["mode"], guarded
         )
         if filtered:
             current = apply_edits(current, filtered, rule_id)
@@ -152,7 +152,7 @@ def analyze_over_spans(
             current,
             edits,
             span_ranges_of(current),
-            ctx["mode"] == "markdown",
+            ctx["mode"],
             [span.url_tail for span in normalized],
         ),
     )

@@ -131,11 +131,54 @@ def _changes_delimiter_flank(cp: list[int], p: int, q: int, w: list[int]) -> boo
     return False
 
 
+def _is_ascii_punctuation(c: int | None) -> bool:
+    return c is not None and (
+        0x21 <= c <= 0x2F or 0x3A <= c <= 0x40 or 0x5B <= c <= 0x60 or 0x7B <= c <= 0x7E
+    )
+
+
+def _is_ascii_alphanumeric(c: int | None) -> bool:
+    return c is not None and (0x30 <= c <= 0x39 or 0x41 <= c <= 0x5A or 0x61 <= c <= 0x7A)
+
+
+def _creates_escape(cp: list[int], p: int, q: int, w: list[int]) -> bool:
+    """modes.md 3.4 escape-and-reference rule, item 1 (``markdown`` only, spec 1.17.4)."""
+    if _at(cp, p - 1) != 0x5C:
+        return False
+    old = _at(cp, p)
+    new = w[0] if w else _at(cp, q + 1)
+    return _is_ascii_punctuation(old) != _is_ascii_punctuation(new)
+
+
+def _creates_reference(cp: list[int], p: int, q: int, w: list[int]) -> bool:
+    """modes.md 3.4 escape-and-reference rule, item 2 (``markdown`` and ``html``, spec 1.17.4):
+    a deletion that makes ``&``, an optional ``#``, one or more ASCII letters or digits and ``;``
+    adjacent around the join. A marker is in no class and stops either scan."""
+    if w or p - 1 < 0 or q + 1 >= len(cp):
+        return False
+    left = p - 1
+    alnum = 0
+    while left >= 0 and _is_ascii_alphanumeric(cp[left]):
+        left -= 1
+        alnum += 1
+    right = q + 1
+    if _at(cp, left) == 0x26 and _at(cp, right) == 0x23 and alnum == 0:
+        right += 1
+    while right < len(cp) and _is_ascii_alphanumeric(cp[right]):
+        right += 1
+        alnum += 1
+    if _at(cp, right) != 0x3B or alnum == 0:
+        return False
+    if left >= 0 and cp[left] == 0x23:
+        left -= 1
+    return left >= 0 and cp[left] == 0x26
+
+
 def filter_boundary_edits(
     cp: list[int],
     edits: list[Edit],
     ranges: list[SpanRange],
-    delimiter_neighbours: bool = False,
+    mode: str | None = None,
     guarded: list[bool] | None = None,
 ) -> list[Edit]:
     """modes.md 3.4, two safety nets, both pure functions of (p, q, r, s0, s1):
@@ -162,7 +205,12 @@ def filter_boundary_edits(
         q = edit.end - 1
         d = edit.end - edit.start
         r = len(edit.replacement)
-        if delimiter_neighbours and _changes_delimiter_flank(cp, p, q, edit.replacement):
+        if mode == "markdown" and (
+            _changes_delimiter_flank(cp, p, q, edit.replacement)
+            or _creates_escape(cp, p, q, edit.replacement)
+        ):
+            continue
+        if mode in ("markdown", "html") and _creates_reference(cp, p, q, edit.replacement):
             continue
         span_index = _span_containing(ranges, p)
         span = None if span_index is None else ranges[span_index]
