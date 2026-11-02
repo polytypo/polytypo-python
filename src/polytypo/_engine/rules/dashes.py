@@ -7,8 +7,7 @@ from typing import Any
 from polytypo._engine.edits import Edit
 from polytypo._engine.registry import RuleContext
 from polytypo._engine.rules import _dash_shared as shared
-from polytypo._engine.sentinels import NONE
-from polytypo._engine.unicode import is_letter
+from polytypo._engine.rules._dashes_paired import scan_paired
 
 RULE_ID = "dashes"
 
@@ -22,6 +21,8 @@ _REPLACEMENT_GLYPH = {
 
 def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[Edit]:
     form = locale_data["dash"]["parenthetical"]
+    if form == "em-paired":
+        return scan_paired(cp)
     edits: list[Edit] = []
     n = len(cp)
     i = 0
@@ -59,7 +60,7 @@ def _try_parenthetical(cp: list[int], token: shared.DashToken, form: str) -> Edi
         return None
 
     # P4: Roman-numeral veto (tight token only).
-    if lsp == 0 and rsp == 0 and _roman_veto_fires(cp, token):
+    if lsp == 0 and rsp == 0 and shared.is_roman_flanked(cp, token.left_idx, token.right_idx):
         return None
 
     # P2/P3: everything else (any DASH glyph, k in {1,2,3}) promotes to the locale's form.
@@ -83,28 +84,3 @@ def _try_parenthetical(cp: list[int], token: shared.DashToken, form: str) -> Edi
         return None
 
     return Edit(span_start, span_end, replacement, RULE_ID)
-
-
-def _roman_veto_fires(cp: list[int], token: shared.DashToken) -> bool:
-    """P4: a tight dash between two maximal ROMAN runs, each outer-bounded by a non-LETTER,
-    is preserved as a genuine Russian-style range and never converted."""
-    L, R = token.left_idx, token.right_idx
-    n = len(cp)
-
-    if not (0 <= L < n and cp[L] in shared.ROMAN):
-        return False
-    if not (0 <= R < n and cp[R] in shared.ROMAN):
-        return False
-
-    left_run_start = L
-    while left_run_start > 0 and cp[left_run_start - 1] in shared.ROMAN:
-        left_run_start -= 1
-    outer_left = shared.at(cp, left_run_start - 1)
-    if outer_left != NONE and is_letter(outer_left):
-        return False
-
-    right_run_end = R
-    while right_run_end < n - 1 and cp[right_run_end + 1] in shared.ROMAN:
-        right_run_end += 1
-    outer_right = shared.at(cp, right_run_end + 1)
-    return outer_right == NONE or not is_letter(outer_right)

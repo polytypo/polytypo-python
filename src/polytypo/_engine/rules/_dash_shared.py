@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from polytypo._engine.sentinels import LINE_MARKER, NONE
+from polytypo._engine.unicode import is_letter
 
 DASH = frozenset({0x2D, 0x2010, 0x2013, 0x2014, 0x2212})
 DIGIT = frozenset(range(0x30, 0x3A))
@@ -128,7 +129,7 @@ def find_token(cp: list[int], i: int) -> tuple[DashToken | None, int]:
 
     # Cluster guard: maximal span of DASH | INERT_DASH | DIGIT | JOINER containing this run;
     # if it has >= 2 dash runs, the whole cluster is inert.
-    if _cluster_has_multiple_dash_runs(cp, s, e):
+    if cluster_has_multiple_dash_runs(cp, s, e):
         return None, e
 
     token = DashToken(
@@ -215,7 +216,7 @@ def _skip_closed_up_symbol(cp: list[int], from_idx: int, step: int) -> int:
     return i + step
 
 
-def _cluster_has_multiple_dash_runs(cp: list[int], s: int, e: int) -> bool:
+def cluster_has_multiple_dash_runs(cp: list[int], s: int, e: int) -> bool:
     n = len(cp)
     cluster_alphabet = DASH | INERT_DASH | DIGIT | frozenset({JOINER})
 
@@ -265,14 +266,18 @@ def spacing_transition_guard_blocks(cp: list[int], token: DashToken) -> bool:
     """T1 (dashes.md 3.2 step 8): a tight token must not become spaced when doing so would
     insert a space between itself and a digit run that has another dash on its far side.
     Only relevant when lsp=rsp=0 and the chosen form is -spaced; caller checks that."""
-    n = len(cp)
-    L, R = token.left_idx, token.right_idx
+    return spacing_transition_blocked_left(cp, token.left_idx) or spacing_transition_blocked_right(
+        cp, token.right_idx
+    )
 
+
+def spacing_transition_blocked_left(cp: list[int], left: int) -> bool:
+    """The left half of T1, for a form that inserts a space on one side only (`em-paired`)."""
+    n = len(cp)
+    L = left
     # Spec 1.3.0, position p1: step over a CLOSED-SYMBOL sitting between the token and the run.
     if at(cp, L) in CLOSED_SYMBOL and L > 0 and cp[L - 1] in DIGIT:
         L -= 1
-    if at(cp, R) in CLOSED_SYMBOL and n > R + 1 and cp[R + 1] in DIGIT:
-        R += 1
 
     if 0 <= L < n and cp[L] in DIGIT:
         d = L
@@ -281,6 +286,15 @@ def spacing_transition_guard_blocks(cp: list[int], token: DashToken) -> bool:
         # Position p2: and over one at the far end of the run.
         if _two_step_lookout_blocks(cp, _skip_closed_up_symbol(cp, d - 1, -1), -1):
             return True
+    return False
+
+
+def spacing_transition_blocked_right(cp: list[int], right: int) -> bool:
+    """The right half of T1; see `spacing_transition_blocked_left`."""
+    n = len(cp)
+    R = right
+    if at(cp, R) in CLOSED_SYMBOL and n > R + 1 and cp[R + 1] in DIGIT:
+        R += 1
 
     if 0 <= R < n and cp[R] in DIGIT:
         d = R
@@ -288,7 +302,6 @@ def spacing_transition_guard_blocks(cp: list[int], token: DashToken) -> bool:
             d += 1
         if _two_step_lookout_blocks(cp, _skip_closed_up_symbol(cp, d + 1, 1), 1):
             return True
-
     return False
 
 
@@ -309,3 +322,26 @@ def composition_guard_blocks(
     if right_cp in T2_SET or right_cp in CLOSE_BRACKET:
         return True
     return left_cp in OPEN_BRACKET
+
+
+def is_roman_flanked(cp: list[int], left: int, right: int) -> bool:
+    """P4 (dashes.md 3.4): a tight dash between two maximal ROMAN runs, each outer-bounded by a
+    non-LETTER, is preserved as a genuine Russian-style range and never converted."""
+    n = len(cp)
+    if not (0 <= left < n and cp[left] in ROMAN):
+        return False
+    if not (0 <= right < n and cp[right] in ROMAN):
+        return False
+
+    a = left
+    while a > 0 and cp[a - 1] in ROMAN:
+        a -= 1
+    outer_left = at(cp, a - 1)
+    if outer_left != NONE and is_letter(outer_left):
+        return False
+
+    b = right
+    while b < n - 1 and cp[b + 1] in ROMAN:
+        b += 1
+    outer_right = at(cp, b + 1)
+    return outer_right == NONE or not is_letter(outer_right)

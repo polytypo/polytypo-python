@@ -27,3 +27,23 @@ def test_digit_flanked_dash_is_never_dashes_territory() -> None:
     # ranges' territory exclusively, unconditionally -- with `ranges` off (the default), a
     # digit-flanked dash is left untouched by `dashes` rather than reinterpreted.
     assert polytypo.transform("pages 5-10", locale="en-US") == "pages 5-10"
+
+
+def test_em_paired_writes_the_pair_with_outer_spaces_only_in_es() -> None:
+    # dashes.md 3.4a: space outside the pair, none inside.
+    assert polytypo.transform("Llegó - por fin - a casa", locale="es") == "Llegó —por fin— a casa"
+    assert polytypo.transform("Llegó —por fin— a casa", locale="es") == "Llegó —por fin— a casa"
+
+
+def test_em_paired_leaves_a_lone_or_surplus_stroke_alone() -> None:
+    assert polytypo.transform("Madrid - la capital", locale="es") == "Madrid - la capital"
+    assert polytypo.transform("a - b - c - d", locale="es") == "a - b - c - d"
+
+
+def test_em_paired_leaves_the_dialogue_dash_alone() -> None:
+    assert polytypo.transform("—Hola —dijo—.", locale="es") == "—Hola —dijo—."
+
+
+def test_em_paired_is_idempotent_on_its_own_output() -> None:
+    once = polytypo.transform("Llegó--por fin--a casa", locale="es")
+    assert polytypo.transform(once, locale="es") == once
