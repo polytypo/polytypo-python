@@ -299,6 +299,9 @@ def _walk(state: _WalkState, node: Node, slice_text: str) -> None:
     if node_type in _LINK_FAMILY_TYPES:
         if _is_reference_label(state, node):
             return
+        if node_type == "shortcut_link":
+            _walk_children_with_gaps(state, node, slice_text)
+            return
         for child in node.children:
             if child.type in _LABEL_FIELD_TYPES:
                 _walk_children_with_gaps(state, child, slice_text)

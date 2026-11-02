@@ -174,6 +174,48 @@ def _creates_reference(cp: list[int], p: int, q: int, w: list[int]) -> bool:
     return left >= 0 and cp[left] == 0x26
 
 
+def _is_x(c: int | None) -> bool:
+    return c in (0x78, 0x58)
+
+
+def _is_label_character(c: int | None) -> bool:
+    return c is not None and c >= 0 and c not in (0x20, 0x5B, 0x5D)
+
+
+def _skip_spaces(cp: list[int], i: int, step: int) -> int:
+    k = i
+    while 0 <= k < len(cp) and cp[k] == 0x20:
+        k += step
+    return k
+
+
+def _creates_bracket_shape(cp: list[int], p: int, q: int, w: list[int]) -> bool:
+    """modes.md 3.4 bracket-shape rule (``markdown`` only, spec 1.17.5): a deletion that joins a
+    task-list marker or a footnote label."""
+    is_collapse = w == [0x20]
+    if w and not is_collapse:
+        return False
+    a = _skip_spaces(cp, p - 1, -1)
+    b = _skip_spaces(cp, q + 1, 1)
+    if is_collapse:
+        return _at(cp, a) == 0x5B and _at(cp, b) == 0x5D
+    if _at(cp, a) == 0x5B and _at(cp, b) == 0x5D:
+        return True
+    if _at(cp, a) == 0x5B:
+        if _at(cp, b) == 0x5E:
+            return True
+        return _is_x(_at(cp, b)) and _at(cp, _skip_spaces(cp, b + 1, 1)) == 0x5D
+    if _at(cp, b) != 0x5D:
+        return False
+    if _is_x(_at(cp, a)) and _at(cp, _skip_spaces(cp, a - 1, -1)) == 0x5B:
+        return True
+    run = a
+    while run >= 0 and _is_label_character(_at(cp, run)):
+        run -= 1
+    first = run + 1
+    return a - first >= 1 and _at(cp, first) == 0x5E and _at(cp, _skip_spaces(cp, run, -1)) == 0x5B
+
+
 def filter_boundary_edits(
     cp: list[int],
     edits: list[Edit],
@@ -208,6 +250,7 @@ def filter_boundary_edits(
         if mode == "markdown" and (
             _changes_delimiter_flank(cp, p, q, edit.replacement)
             or _creates_escape(cp, p, q, edit.replacement)
+            or _creates_bracket_shape(cp, p, q, edit.replacement)
         ):
             continue
         if mode in ("markdown", "html") and _creates_reference(cp, p, q, edit.replacement):
