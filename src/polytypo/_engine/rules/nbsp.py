@@ -89,7 +89,13 @@ def scan(cp: list[int], locale_data: dict[str, Any], ctx: RuleContext) -> list[E
         ),
         _n3_after_short_words(cp, nbsp_data["afterShortWords"], openish),
         _n4_abbreviations(cp, nbsp_data["abbreviations"]),
-        _n5_before_units(cp, nbsp_data["beforeUnits"]),
+        _n5_units(
+            cp,
+            nbsp_data["beforeUnits"],
+            nbsp_data["spacedUnits"],
+            nbsp_data["closedUnits"],
+            openish,
+        ),
         _n6_after_symbols(cp, nbsp_data["afterSymbols"]),
         _n7_initial_binding(cp, nbsp_data["initialBinding"], openish),
         _n8_quotes_inner_space(cp, locale_data["quotes"], ctx["narrow_target"]),
@@ -320,40 +326,166 @@ def _matches_space_lenient(cp: list[int], a: int, pattern: list[int]) -> bool:
 # ---------------------------------------------------------------- N5
 
 
-def _n5_before_units(cp: list[int], units: list[str]) -> list[Edit]:
-    patterns = [[ord(c) for c in u] for u in units]
+_NUMBER_PREFIXES = frozenset({0x2B, 0xB1, 0xD7, 0x2212, 0x7E, 0x2248, 0x3C, 0x3E, 0x2060})
+HYPHEN_MINUS = 0x2D
+NON_BREAKING_HYPHEN = 0x2011
+LOW_LINE = 0x5F
+COMMA = 0x2C
+WORD_JOINER = 0x2060
+# dashes.md 3.1 DASH and INERT-DASH.
+_ANY_DASH = frozenset(
+    {0x2D, 0x2010, 0x2013, 0x2014, 0x2212, 0xAD, 0x2011, 0x2012, 0x2015, 0xFE58, 0xFE63, 0xFF0D}
+)
+
+
+def _is_closed_symbol(c: int) -> bool:
+    """ranges.md 3.2a CLOSED-SYMBOL, mirrored (this rule does not depend on `ranges`)."""
+    return (
+        c == 0x24 or 0xA2 <= c <= 0xA5 or 0x20A0 <= c <= 0x20CF or c in (0x25, 0x2030, 0x2031, 0xB0)
+    )
+
+
+def _nearest_beyond(cp: list[int], start: int, step: int) -> int:
+    """nbsp.md 3.7 step 5.3: first code point past a run of non-break spaces and U+2060."""
+    i = start
+    while 0 <= i < len(cp):
+        c = cp[i]
+        if c == WORD_JOINER or (c in SPACELIKE and c not in BREAK):
+            i += step
+            continue
+        return c
+    return NONE
+
+
+def _number_start(cp: list[int], end: int) -> int:
+    """nbsp.md 3.7 step 5.1: number start, extended over decimal/thousands separators."""
+    b = end
+    while b - 1 >= 0 and cp[b - 1] in DIGIT:
+        b -= 1
+    while _at(cp, b - 1) in (COMMA, DOT) and _at(cp, b - 2) in DIGIT:
+        b -= 2
+        while b - 1 >= 0 and cp[b - 1] in DIGIT:
+            b -= 1
+    return b
+
+
+def _number_start_is_clean(cp: list[int], openish: frozenset[int], b: int) -> bool:
+    c = _at(cp, b - 1)
+    if c == NONE or c in SPACELIKE or c in openish or c in SENTENCE_DASH:
+        return True
+    if c in _NUMBER_PREFIXES:
+        return True
+    if c != HYPHEN_MINUS:
+        return False
+    before = _at(cp, b - 2)
+    return before == NONE or before in SPACELIKE or before in openish
+
+
+NOBREAK_OR_SP = frozenset({SP, NBSP, NNBSP})
+_MUL_LETTERS = frozenset({0x78, 0x58, 0x445, 0x425})
+
+
+def _is_right_operand_of_multiplication(cp: list[int], b: int) -> bool:
+    """nbsp.md 3.7 step 5.5: `DIGIT [space] MUL-LETTER [space]` immediately before `b`."""
+    i = b - 1
+    if _at(cp, i) in NOBREAK_OR_SP:
+        i -= 1
+    if _at(cp, i) not in _MUL_LETTERS:
+        return False
+    i -= 1
+    if _at(cp, i) in NOBREAK_OR_SP:
+        i -= 1
+    return _at(cp, i) in DIGIT
+
+
+def _n5_units(
+    cp: list[int],
+    before_units: list[str],
+    spaced_units: list[str],
+    closed_units: list[str],
+    openish: frozenset[int],
+) -> list[Edit]:
+    """nbsp.md 3.7. `beforeUnits` converts, `spacedUnits` converts and inserts, `closedUnits`
+    deletes; the longest entry across the three lists wins at each index."""
+    entries: list[tuple[list[int], str]] = []
+    for names, kind in (
+        (before_units, "before"),
+        (spaced_units, "spaced"),
+        (closed_units, "closed"),
+    ):
+        for u in names:
+            entries.append(([ord(c) for c in u], kind))
+    if not entries:
+        return []
+    entries.sort(key=lambda e: -len(e[0]))  # stable: longest first
     n = len(cp)
     edits: list[Edit] = []
-    a = 0
-    while a < n:
-        best: list[int] | None = None
-        for pat in patterns:
-            if _matches_exact(cp, a, pat) and (best is None or len(pat) > len(best)):
-                best = pat
-        if best is None:
-            a += 1
+    for a in range(n):
+        match: tuple[list[int], str] | None = None
+        for entry in entries:
+            if _matches_exact(cp, a, entry[0]):
+                match = entry
+                break
+        if match is None:
             continue
-        k = len(best)
-        right = _at(cp, a + k)
-        if _is_alnum(right):
-            a += 1
+        w, kind = match
+        k = len(w)
+        if _is_alnum(_at(cp, a + k)):
             continue
         left = _at(cp, a - 1)
-        if left not in (SP, NBSP):
-            a += 1
-            continue
-        if _at(cp, a - 2) not in DIGIT:
-            a += 1
-            continue
-        b = a - 2
-        while b > 0 and cp[b - 1] in DIGIT:
-            b -= 1
-        if _at(cp, b - 1) != NONE and is_letter(_at(cp, b - 1)):
-            a += 1
-            continue
-        if left != NBSP:
+
+        if kind == "before":
+            if left != SP or _at(cp, a - 2) not in DIGIT:
+                continue
+            b = a - 2
+            while b - 1 >= 0 and cp[b - 1] in DIGIT:
+                b -= 1
+            if is_letter(_at(cp, b - 1)):
+                continue
             edits.append(Edit(a - 1, a, [NBSP], RULE_ID))
-        a += k
+            continue
+
+        is_closed = kind == "closed"
+        is_separated = left in (SP, NBSP) or (is_closed and left == NNBSP)
+        is_touching = left in DIGIT
+        if not is_separated and not (is_touching and not is_closed):
+            continue
+        if not is_closed and left == NBSP:
+            continue
+        end = a - 2 if is_separated else a - 1
+        if _at(cp, end) not in DIGIT:
+            continue
+        b = end
+        while b - 1 >= 0 and cp[b - 1] in DIGIT:
+            b -= 1
+        if is_letter(_at(cp, b - 1)):
+            continue
+
+        if not is_closed and is_separated:
+            if left == SP:
+                edits.append(Edit(a - 1, a, [NBSP], RULE_ID))
+            continue
+        start = _number_start(cp, end)
+        if not _number_start_is_clean(cp, openish, start):
+            continue
+        if _is_closed_symbol(w[0]) and (
+            _nearest_beyond(cp, start - 1, -1) in _ANY_DASH
+            or _nearest_beyond(cp, a + k, 1) in _ANY_DASH
+        ):
+            continue
+        if not is_closed and _is_right_operand_of_multiplication(cp, start):
+            continue
+        nxt = _at(cp, a + k)
+        if nxt in (HYPHEN_MINUS, NON_BREAKING_HYPHEN, LOW_LINE):
+            continue
+        if nxt == DOT and _is_alnum(_at(cp, a + k + 1)):
+            continue
+        if is_closed:
+            if nxt == SP and _at(cp, a + k + 1) in DIGIT:
+                continue
+            edits.append(Edit(a - 1, a, [], RULE_ID))
+        else:
+            edits.append(Edit(a, a, [NBSP], RULE_ID))
     return edits
 
 
