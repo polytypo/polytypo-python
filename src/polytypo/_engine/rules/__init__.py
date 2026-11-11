@@ -10,6 +10,7 @@ from polytypo._engine.rules import (
     ellipsis,
     hyphen,
     nbsp,
+    quote_punctuation,
     quotes,
     ranges,
     spaces,
@@ -22,6 +23,7 @@ register(ranges.RULE_ID, ranges.scan)
 register(dashes.RULE_ID, dashes.scan)
 register(hyphen.RULE_ID, hyphen.scan)
 register(quotes.RULE_ID, quotes.scan)
+register(quote_punctuation.RULE_ID, quote_punctuation.scan)
 register(apostrophe.RULE_ID, apostrophe.scan)
 register(symbols.RULE_ID, symbols.scan)
 register(nbsp.RULE_ID, nbsp.scan)

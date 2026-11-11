@@ -24,6 +24,7 @@ ORDER = [
     "dashes",
     "hyphen",
     "quotes",
+    "quote-punctuation",
     "apostrophe",
     "symbols",
     "nbsp",

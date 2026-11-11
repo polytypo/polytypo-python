@@ -20,6 +20,7 @@ rules/locale-resolution.md
 rules/modes.md
 rules/nbsp.md
 rules/pipeline-idempotency.md
+rules/quote-punctuation.md
 rules/quotes.md
 rules/ranges.md
 rules/spaces.md

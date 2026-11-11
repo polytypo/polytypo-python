@@ -43,9 +43,9 @@ def rule_order() -> list[str]:
 
 @lru_cache(maxsize=1)
 def rule_defaults() -> dict[str, bool]:
-    """Rule id -> default enabled/disabled (only `ranges` defaults to False). order.json's
-    `default` field is the string "on"/"off", not a JSON boolean -- `bool(x)` on either string
-    would be True, so this must compare against "on" explicitly."""
+    """Rule id -> default enabled/disabled (`ranges` and `quote-punctuation` default to
+    False). order.json's `default` field is the string "on"/"off", not a JSON boolean -- `bool(x)`
+    on either string would be True, so this must compare against "on" explicitly."""
     return {r["id"]: r["default"] == "on" for r in _order_data()["rules"]}
 
 

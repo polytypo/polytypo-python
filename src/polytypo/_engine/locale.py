@@ -111,4 +111,18 @@ def _resolve_alias(tag: str, aliases: dict[str, str], locales: list[str]) -> str
 
 def get_locale_data(locale_id: str) -> dict[str, Any]:
     """The already-resolved locale's data, as parsed JSON matching locale.schema.json's shape."""
-    return _locale_data_raw(locale_id)
+    data = _locale_data_raw(locale_id)
+    _check_punctuation_placement(locale_id, data)
+    return data
+
+
+def _check_punctuation_placement(locale_id: str, data: dict[str, Any]) -> None:
+    """quote-punctuation.md 2: `quotes.punctuationPlacement` is required, "inside" or "none"."""
+    quotes = data.get("quotes")
+    value = quotes.get("punctuationPlacement") if isinstance(quotes, dict) else None
+    if value not in ("inside", "none") or not isinstance(value, str):
+        raise PolytypoError(
+            POLYTYPO_MALFORMED_LOCALE_DATA,
+            f'locale {locale_id!r}: quotes.punctuationPlacement must be "inside" or "none", '
+            f"got {value!r}",
+        )

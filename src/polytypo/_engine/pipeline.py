@@ -28,8 +28,8 @@ from polytypo.errors import POLYTYPO_UNKNOWN_RULE, PolytypoError
 
 def resolve_rule_plan(rules_option: dict[str, bool] | None) -> list[str]:
     """Defaults + opt-out overrides. `rules` is opt-out only (ARCHITECTURE.md section 7) -- it
-    may only disable a default-on rule or enable a default-off one (`ranges`); an unknown key
-    raises POLYTYPO_UNKNOWN_RULE."""
+    may only disable a default-on rule or enable a default-off one (`ranges`,
+    `quote-punctuation`); an unknown key raises POLYTYPO_UNKNOWN_RULE."""
     defaults = rule_defaults()
     enabled = dict(defaults)
     if rules_option:
