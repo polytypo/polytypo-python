@@ -59,6 +59,14 @@ transform('<a title="test... wait">Wait... she said "go on."</a>', locale="en-US
 # <a title="test... wait">Wait… she said “go on.”</a>
 ```
 
+`html` mode leaves ten elements alone, with everything inside them: `code`, `pre`, `kbd`, `samp`,
+`var`, `script`, `style`, `textarea`, `svg` and `math`. If you walk a document with a parser of your
+own, read the list instead of copying it: `polytypo.html.SKIPPED_ELEMENTS` is a tuple.
+
+```python
+from polytypo.html import SKIPPED_ELEMENTS
+```
+
 `polytypo.text`, `polytypo.html`, `polytypo.markdown` and `polytypo.yaml` each exclude the
 parser dependency the other modes don't need (importing `polytypo.text` never imports
 `html.parser`-based span extraction or tree-sitter; `polytypo.yaml` needs no parser at all). The

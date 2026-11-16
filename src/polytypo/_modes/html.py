@@ -21,8 +21,17 @@ from polytypo._modes.spans import Span
 # decision. `svg`/`math` are here because in MathML a quotation mark, a hyphen and a prime are
 # operators and identifiers -- substituting a curly glyph changes what the expression means.
 # Everything else is processable, including unknown and custom elements.
-SKIPPED_ELEMENTS = frozenset(
-    {"code", "pre", "kbd", "samp", "var", "script", "style", "textarea", "svg", "math"}
+SKIPPED_ELEMENTS: tuple[str, ...] = (
+    "code",
+    "pre",
+    "kbd",
+    "samp",
+    "var",
+    "script",
+    "style",
+    "textarea",
+    "svg",
+    "math",
 )
 
 # HTML5 void elements: never pushed onto the element stack, since most authors never close them

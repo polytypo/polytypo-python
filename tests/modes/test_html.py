@@ -65,3 +65,28 @@ def test_svg_subtree_is_skipped() -> None:
 def test_attribute_quoting_is_preserved() -> None:
     out = polytypo.html.transform('<p class=foo>"hi"</p>', locale="en-US")
     assert out.startswith("<p class=foo>")
+
+
+def test_published_skip_list_is_the_ten_names_in_spec_order() -> None:
+    assert polytypo.html.SKIPPED_ELEMENTS == (
+        "code",
+        "pre",
+        "kbd",
+        "samp",
+        "var",
+        "script",
+        "style",
+        "textarea",
+        "svg",
+        "math",
+    )
+    assert isinstance(polytypo.html.SKIPPED_ELEMENTS, tuple)
+
+
+def test_every_published_name_is_left_alone_with_its_subtree() -> None:
+    for tag in polytypo.html.SKIPPED_ELEMENTS:
+        source = f"<p>a...b</p><{tag}>c...d</{tag}>"
+        assert (
+            polytypo.html.transform(source, locale="en-US")
+            == f"<p>a\u2026b</p><{tag}>c...d</{tag}>"
+        )

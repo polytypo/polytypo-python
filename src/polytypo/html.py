@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from polytypo._engine.mode_pipelines import analyze_html_pipeline, run_html_pipeline
 from polytypo._engine.origin import Change
+from polytypo._modes.html import SKIPPED_ELEMENTS
 from polytypo.errors import PolytypoError
 
-__all__ = ["Change", "PolytypoError", "analyze", "transform"]
+__all__ = ["SKIPPED_ELEMENTS", "Change", "PolytypoError", "analyze", "transform"]
 
 
 def transform(
